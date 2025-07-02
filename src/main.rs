@@ -15,40 +15,40 @@ enum Commands {
     Build {
         #[arg(short, long, default_value = ".")]
         project: String,
-        
+
         #[arg(short, long, default_value = "./dist")]
         output: String,
-        
+
         #[arg(long, value_enum, default_value = "release")]
         optimization: CliOptimization,
-        
+
         #[arg(long, value_enum, default_value = "wasm")]
         target: CliTarget,
-        
+
         #[arg(short, long)]
         verbose: bool,
     },
-    
+
     /// Compile for AOT execution (returns optimal entry point)
     Aot {
         #[arg(short, long, default_value = ".")]
         project: String,
-        
+
         #[arg(short, long, default_value = "./dist")]
         output: String,
-        
+
         #[arg(long, value_enum, default_value = "release")]
         optimization: CliOptimization,
-        
+
         #[arg(short, long)]
         verbose: bool,
     },
-    
+
     Check {
         #[arg(short, long, default_value = ".")]
         project: String,
     },
-    
+
     Info,
 }
 
@@ -122,11 +122,11 @@ fn main() {
                 Ok(result) => {
                     println!("✅ Build completed successfully!");
                     println!("📦 WASM: {}", result.wasm_path);
-                    
+
                     if let Some(js_path) = result.js_path {
                         println!("📝 JS: {}", js_path);
                     }
-                    
+
                     if result.is_webapp {
                         println!("🌐 Web application built successfully");
                     }
@@ -145,7 +145,7 @@ fn main() {
         Commands::Aot {
             project,
             output,
-            optimization,
+            optimization: _,
             verbose,
         } => {
             if !plugin.can_handle(&project) {
