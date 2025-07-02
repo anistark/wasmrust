@@ -1,0 +1,48 @@
+[package]
+name = "wasmrust"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kumar Anirudha <wasm@anirudha.dev>"]
+description = "Rust WebAssembly plugin for Wasmrun - compile Rust projects to WebAssembly with wasm-bindgen support"
+homepage = "https://github.com/anistark/wasmrust"
+repository = "https://github.com/anistark/wasmrust"
+license = "MIT"
+keywords = ["webassembly", "wasm", "rust", "wasm-bindgen", "wasmrun"]
+categories = ["development-tools", "web-programming"]
+readme = "README.md"
+
+[lib]
+name = "wasmrust"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wasmrust"
+required-features = ["cli"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+thiserror = "1.0"
+clap = { version = "4.0", features = ["derive"], optional = true }
+
+[features]
+default = []
+cli = ["clap"]
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[package.metadata.wasm-plugin]
+name = "rust"
+extensions = ["rs"]
+entry_files = ["Cargo.toml"]
+
+[package.metadata.wasm-plugin.capabilities]
+compile_wasm = true
+compile_webapp = true
+live_reload = true
+optimization = true
+custom_targets = ["wasm32-unknown-unknown", "web"]
+
+[package.metadata.wasm-plugin.dependencies]
+tools = ["cargo", "rustc", "wasm-pack"]
