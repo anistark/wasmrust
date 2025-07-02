@@ -8,16 +8,16 @@ use thiserror::Error;
 pub enum WasmRustError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("Build failed: {0}")]
-    BuildFailed(String),
-
+    
+    #[error("Compilation failed: {0}")]
+    CompilationFailed(String),
+    
     #[error("Invalid project: {0}")]
     InvalidProject(String),
-
+    
     #[error("Tool not found: {0}")]
     ToolNotFound(String),
-
+    
     #[error("TOML parse error: {0}")]
     TomlParse(#[from] toml::de::Error),
 }
@@ -25,7 +25,7 @@ pub enum WasmRustError {
 pub type Result<T> = std::result::Result<T, WasmRustError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildConfig {
+pub struct CompileConfig {
     pub project_path: String,
     pub output_dir: String,
     pub optimization: OptimizationLevel,
@@ -47,7 +47,7 @@ pub enum TargetType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildResult {
+pub struct CompileResult {
     pub wasm_path: String,
     pub js_path: Option<String>,
     pub additional_files: Vec<String>,
@@ -84,24 +84,24 @@ impl WasmRustPlugin {
         missing
     }
 
-    pub fn build(&self, config: &BuildConfig) -> Result<BuildResult> {
+    pub fn compile(&self, config: &CompileConfig) -> Result<CompileResult> {
         if self.uses_wasm_bindgen(&config.project_path) {
             if self.is_rust_web_application(&config.project_path) {
-                self.build_web_application(config)
+                self.compile_web_application(config)
             } else {
-                self.build_wasm_bindgen(config)
+                self.compile_wasm_bindgen(config)
             }
         } else {
-            self.build_standard_wasm(config)
+            self.compile_standard_wasm(config)
         }
     }
 
     fn uses_wasm_bindgen(&self, project_path: &str) -> bool {
         let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
-
+        
         if let Ok(cargo_toml) = fs::read_to_string(cargo_toml_path) {
-            cargo_toml.contains("wasm-bindgen")
-                || cargo_toml.contains("web-sys")
+            cargo_toml.contains("wasm-bindgen") 
+                || cargo_toml.contains("web-sys") 
                 || cargo_toml.contains("js-sys")
         } else {
             false
@@ -117,8 +117,8 @@ impl WasmRustPlugin {
             }
 
             let web_frameworks = [
-                "yew", "leptos", "dioxus", "sycamore", "mogwai", "seed", "percy", "iced", "dodrio",
-                "smithy", "trunk",
+                "yew", "leptos", "dioxus", "sycamore", "mogwai", 
+                "seed", "percy", "iced", "dodrio", "smithy", "trunk",
             ];
 
             for framework in web_frameworks {
@@ -144,13 +144,13 @@ impl WasmRustPlugin {
         false
     }
 
-    fn build_standard_wasm(&self, config: &BuildConfig) -> Result<BuildResult> {
+    fn compile_standard_wasm(&self, config: &CompileConfig) -> Result<CompileResult> {
         self.ensure_wasm32_target()?;
 
         let mut args = vec!["build", "--target", "wasm32-unknown-unknown"];
 
         match config.optimization {
-            OptimizationLevel::Debug => {}
+            OptimizationLevel::Debug => {},
             OptimizationLevel::Release => args.push("--release"),
             OptimizationLevel::Size => {
                 args.push("--release");
@@ -164,7 +164,7 @@ impl WasmRustPlugin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WasmRustError::BuildFailed(stderr.to_string()));
+            return Err(WasmRustError::CompilationFailed(stderr.to_string()));
         }
 
         let profile = match config.optimization {
@@ -179,15 +179,15 @@ impl WasmRustPlugin {
             .join(format!("{}.wasm", wasm_name));
 
         if !wasm_path.exists() {
-            return Err(WasmRustError::BuildFailed(
-                "WASM file not found after build".to_string(),
+            return Err(WasmRustError::CompilationFailed(
+                "WASM file not found after compilation".to_string()
             ));
         }
 
         let output_wasm = Path::new(&config.output_dir).join(format!("{}.wasm", wasm_name));
         fs::copy(&wasm_path, &output_wasm)?;
 
-        Ok(BuildResult {
+        Ok(CompileResult {
             wasm_path: output_wasm.to_string_lossy().to_string(),
             js_path: None,
             additional_files: Vec::new(),
@@ -195,10 +195,10 @@ impl WasmRustPlugin {
         })
     }
 
-    fn build_wasm_bindgen(&self, config: &BuildConfig) -> Result<BuildResult> {
+    fn compile_wasm_bindgen(&self, config: &CompileConfig) -> Result<CompileResult> {
         if !self.is_tool_available("wasm-pack") {
             return Err(WasmRustError::ToolNotFound(
-                "wasm-pack is required for wasm-bindgen projects".to_string(),
+                "wasm-pack is required for wasm-bindgen projects".to_string()
             ));
         }
 
@@ -221,14 +221,14 @@ impl WasmRustPlugin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WasmRustError::BuildFailed(stderr.to_string()));
+            return Err(WasmRustError::CompilationFailed(stderr.to_string()));
         }
 
         let package_name = self.get_package_name(&config.project_path)?;
         let wasm_path = Path::new(&config.output_dir).join(format!("{}_bg.wasm", package_name));
         let js_path = Path::new(&config.output_dir).join(format!("{}.js", package_name));
 
-        Ok(BuildResult {
+        Ok(CompileResult {
             wasm_path: wasm_path.to_string_lossy().to_string(),
             js_path: Some(js_path.to_string_lossy().to_string()),
             additional_files: Vec::new(),
@@ -236,24 +236,24 @@ impl WasmRustPlugin {
         })
     }
 
-    fn build_web_application(&self, config: &BuildConfig) -> Result<BuildResult> {
+    fn compile_web_application(&self, config: &CompileConfig) -> Result<CompileResult> {
         // Check if project uses Trunk
         let uses_trunk = Path::new(&config.project_path).join("Trunk.toml").exists()
             || Path::new(&config.project_path).join("trunk.toml").exists();
 
         if uses_trunk && self.is_tool_available("trunk") {
-            self.build_with_trunk(config)
+            self.compile_with_trunk(config)
         } else {
             // Fall back to wasm-pack for web apps
-            self.build_wasm_bindgen(config)
+            self.compile_wasm_bindgen(config)
         }
     }
 
-    fn build_with_trunk(&self, config: &BuildConfig) -> Result<BuildResult> {
+    fn compile_with_trunk(&self, config: &CompileConfig) -> Result<CompileResult> {
         let mut args = vec!["build"];
 
         match config.optimization {
-            OptimizationLevel::Debug => {}
+            OptimizationLevel::Debug => {},
             OptimizationLevel::Release => args.push("--release"),
             OptimizationLevel::Size => {
                 args.extend(["--release", "--minify"]);
@@ -269,19 +269,19 @@ impl WasmRustPlugin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WasmRustError::BuildFailed(stderr.to_string()));
+            return Err(WasmRustError::CompilationFailed(stderr.to_string()));
         }
 
         let index_path = Path::new(&config.output_dir).join("index.html");
         if !index_path.exists() {
-            return Err(WasmRustError::BuildFailed(
-                "No index.html generated by trunk".to_string(),
+            return Err(WasmRustError::CompilationFailed(
+                "No index.html generated by trunk".to_string()
             ));
         }
 
-        // For web apps, return the dist directory as the "wasm_path"
+        // For web apps, return the dist directory as the "wasm_path" 
         // and index.html as the "js_path" (entry point)
-        Ok(BuildResult {
+        Ok(CompileResult {
             wasm_path: config.output_dir.clone(),
             js_path: Some(index_path.to_string_lossy().to_string()),
             additional_files: Vec::new(),
@@ -292,12 +292,12 @@ impl WasmRustPlugin {
     fn get_package_name(&self, project_path: &str) -> Result<String> {
         let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
         let content = fs::read_to_string(cargo_toml_path)?;
-
+        
         #[derive(Deserialize)]
         struct CargoToml {
             package: Package,
         }
-
+        
         #[derive(Deserialize)]
         struct Package {
             name: String,
@@ -315,9 +315,8 @@ impl WasmRustPlugin {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(WasmRustError::BuildFailed(format!(
-                    "Failed to install wasm32 target: {}",
-                    stderr
+                return Err(WasmRustError::CompilationFailed(format!(
+                    "Failed to install wasm32 target: {}", stderr
                 )));
             }
         }
@@ -343,9 +342,9 @@ impl WasmRustPlugin {
             .unwrap_or(false)
     }
 
-    /// Compile for execution (returns JS file for wasm-bindgen, WASM for standard)
-    pub fn compile_for_execution(&self, project_path: &str, output_dir: &str) -> Result<String> {
-        let config = BuildConfig {
+    /// Run project for execution (returns JS file for wasm-bindgen, WASM for standard)
+    pub fn run_for_execution(&self, project_path: &str, output_dir: &str) -> Result<String> {
+        let config = CompileConfig {
             project_path: project_path.to_string(),
             output_dir: output_dir.to_string(),
             optimization: OptimizationLevel::Release,
@@ -353,21 +352,16 @@ impl WasmRustPlugin {
             verbose: false,
         };
 
-        let result = self.build(&config)?;
-
+        let result = self.compile(&config)?;
+        
         // For wasm-bindgen projects, return JS file for easier loading
         // For standard WASM, return the WASM file
         Ok(result.js_path.unwrap_or(result.wasm_path))
     }
 
-    /// Compile for execution with custom optimization
-    pub fn compile_for_execution_with_config(
-        &self,
-        project_path: &str,
-        output_dir: &str,
-        optimization: OptimizationLevel,
-    ) -> Result<String> {
-        let config = BuildConfig {
+    /// Run project for execution with custom optimization
+    pub fn run_for_execution_with_config(&self, project_path: &str, output_dir: &str, optimization: OptimizationLevel) -> Result<String> {
+        let config = CompileConfig {
             project_path: project_path.to_string(),
             output_dir: output_dir.to_string(),
             optimization,
@@ -375,8 +369,8 @@ impl WasmRustPlugin {
             verbose: false,
         };
 
-        let result = self.build(&config)?;
-
+        let result = self.compile(&config)?;
+        
         // For wasm-bindgen projects, return JS file for easier loading
         // For standard WASM, return the WASM file
         Ok(result.js_path.unwrap_or(result.wasm_path))

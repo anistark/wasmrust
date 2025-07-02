@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use wasmrust::{BuildConfig, OptimizationLevel, TargetType, WasmRustPlugin};
+use wasmrust::{CompileConfig, OptimizationLevel, TargetType, WasmRustPlugin};
 
 #[derive(Parser)]
 #[command(name = "wasmrust")]
@@ -7,48 +7,51 @@ use wasmrust::{BuildConfig, OptimizationLevel, TargetType, WasmRustPlugin};
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    Build {
+    /// Run a Rust WebAssembly project (default command)
+    #[command(alias = "r")]
+    Run {
         #[arg(short, long, default_value = ".")]
         project: String,
-
+        
         #[arg(short, long, default_value = "./dist")]
         output: String,
-
+        
         #[arg(long, value_enum, default_value = "release")]
         optimization: CliOptimization,
-
+        
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    
+    /// Compile a Rust project to WebAssembly
+    #[command(alias = "c")]
+    Compile {
+        #[arg(short, long, default_value = ".")]
+        project: String,
+        
+        #[arg(short, long, default_value = "./dist")]
+        output: String,
+        
+        #[arg(long, value_enum, default_value = "release")]
+        optimization: CliOptimization,
+        
         #[arg(long, value_enum, default_value = "wasm")]
         target: CliTarget,
-
+        
         #[arg(short, long)]
         verbose: bool,
     },
-
-    /// Compile for AOT execution (returns optimal entry point)
-    Aot {
-        #[arg(short, long, default_value = ".")]
-        project: String,
-
-        #[arg(short, long, default_value = "./dist")]
-        output: String,
-
-        #[arg(long, value_enum, default_value = "release")]
-        optimization: CliOptimization,
-
-        #[arg(short, long)]
-        verbose: bool,
-    },
-
+    
     Check {
         #[arg(short, long, default_value = ".")]
         project: String,
     },
-
+    
     Info,
 }
 
@@ -88,15 +91,64 @@ fn main() {
     let cli = Cli::parse();
     let plugin = WasmRustPlugin::new();
 
-    match cli.command {
-        Commands::Build {
+    // Default to Run command if no subcommand is provided
+    let command = cli.command.unwrap_or(Commands::Run {
+        project: ".".to_string(),
+        output: "./dist".to_string(),
+        optimization: CliOptimization::Release,
+        verbose: false,
+    });
+
+    match command {
+        Commands::Run {
+            project,
+            output,
+            optimization,
+            verbose,
+        } => {
+            if !plugin.can_handle(&project) {
+                eprintln!("Error: Not a valid Rust project (no Cargo.toml found)");
+                std::process::exit(1);
+            }
+
+            let missing_deps = plugin.check_dependencies();
+            if !missing_deps.is_empty() {
+                eprintln!("Error: Missing dependencies:");
+                for dep in missing_deps {
+                    eprintln!("  - {}", dep);
+                }
+                std::process::exit(1);
+            }
+
+            if verbose {
+                println!("🚀 Running Rust WebAssembly project...");
+            }
+
+            match plugin.run_for_execution_with_config(&project, &output, optimization.into()) {
+                Ok(entry_point) => {
+                    if verbose {
+                        println!("✅ Project ready for execution!");
+                        println!("📦 Entry point: {}", entry_point);
+                    } else {
+                        // For scripting
+                        println!("{}", entry_point);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to prepare project for execution: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Commands::Compile {
             project,
             output,
             optimization,
             target,
             verbose,
         } => {
-            let config = BuildConfig {
+            let config = CompileConfig {
                 project_path: project.clone(),
                 output_dir: output,
                 optimization: optimization.into(),
@@ -118,17 +170,17 @@ fn main() {
                 std::process::exit(1);
             }
 
-            match plugin.build(&config) {
+            match plugin.compile(&config) {
                 Ok(result) => {
-                    println!("✅ Build completed successfully!");
+                    println!("✅ Compilation completed successfully!");
                     println!("📦 WASM: {}", result.wasm_path);
-
+                    
                     if let Some(js_path) = result.js_path {
                         println!("📝 JS: {}", js_path);
                     }
-
+                    
                     if result.is_webapp {
-                        println!("🌐 Web application built successfully");
+                        println!("🌐 Web application compiled successfully");
                     }
 
                     if !result.additional_files.is_empty() {
@@ -136,48 +188,7 @@ fn main() {
                     }
                 }
                 Err(e) => {
-                    eprintln!("❌ Build failed: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-
-        Commands::Aot {
-            project,
-            output,
-            optimization: _,
-            verbose,
-        } => {
-            if !plugin.can_handle(&project) {
-                eprintln!("Error: Not a valid Rust project (no Cargo.toml found)");
-                std::process::exit(1);
-            }
-
-            let missing_deps = plugin.check_dependencies();
-            if !missing_deps.is_empty() {
-                eprintln!("Error: Missing dependencies:");
-                for dep in missing_deps {
-                    eprintln!("  - {}", dep);
-                }
-                std::process::exit(1);
-            }
-
-            if verbose {
-                println!("🔨 Compiling for AOT execution...");
-            }
-
-            match plugin.compile_for_execution(&project, &output) {
-                Ok(entry_point) => {
-                    if verbose {
-                        println!("✅ AOT compilation successful!");
-                        println!("📦 Entry point: {}", entry_point);
-                    } else {
-                        // For scripting - just output the entry point
-                        println!("{}", entry_point);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("❌ AOT compilation failed: {}", e);
+                    eprintln!("❌ Compilation failed: {}", e);
                     std::process::exit(1);
                 }
             }
@@ -204,6 +215,12 @@ fn main() {
         Commands::Info => {
             println!("WasmRust v{}", env!("CARGO_PKG_VERSION"));
             println!("Rust WebAssembly compiler");
+            println!();
+            println!("Commands:");
+            println!("  run      Run a Rust WebAssembly project (default)");
+            println!("  compile  Compile a Rust project to WebAssembly");
+            println!("  check    Check project dependencies");
+            println!("  info     Show version and usage information");
         }
     }
 }

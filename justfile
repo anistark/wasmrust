@@ -1,6 +1,4 @@
-# WasmRust Development
-
-# Default recipe - show available commands
+# Default recipe
 default:
     @just --list
 
@@ -12,17 +10,29 @@ format:
 lint:
     cargo clippy --all-targets --all-features -- -D warnings
 
+# Run clippy with fixes
+lint-fix:
+    cargo clippy --all-targets --all-features --fix
+
 # Clean build artifacts
 clean:
     cargo clean
 
-# Build the project (debug)
+# Build the project
 build:
     cargo build --release
 
 # Build with CLI feature
 build-cli:
     cargo build --features cli
+
+# Run the CLI with help
+run-help:
+    cargo run --features cli -- --help
+
+# Run the CLI with arguments (use like: just run info)
+run *args:
+    cargo run --features cli -- {{args}}
 
 # Run tests
 test:
