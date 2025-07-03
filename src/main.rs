@@ -17,41 +17,41 @@ enum Commands {
     Run {
         #[arg(short, long, default_value = ".")]
         project: String,
-        
+
         #[arg(short, long, default_value = "./dist")]
         output: String,
-        
+
         #[arg(long, value_enum, default_value = "release")]
         optimization: CliOptimization,
-        
+
         #[arg(short, long)]
         verbose: bool,
     },
-    
+
     /// Compile a Rust project to WebAssembly
     #[command(alias = "c")]
     Compile {
         #[arg(short, long, default_value = ".")]
         project: String,
-        
+
         #[arg(short, long, default_value = "./dist")]
         output: String,
-        
+
         #[arg(long, value_enum, default_value = "release")]
         optimization: CliOptimization,
-        
+
         #[arg(long, value_enum, default_value = "wasm")]
         target: CliTarget,
-        
+
         #[arg(short, long)]
         verbose: bool,
     },
-    
+
     Check {
         #[arg(short, long, default_value = ".")]
         project: String,
     },
-    
+
     Info,
 }
 
@@ -130,7 +130,7 @@ fn main() {
                         println!("✅ Project ready for execution!");
                         println!("📦 Entry point: {}", entry_point);
                     } else {
-                        // For scripting
+                        // For scripting - just output the entry point
                         println!("{}", entry_point);
                     }
                 }
@@ -174,11 +174,11 @@ fn main() {
                 Ok(result) => {
                     println!("✅ Compilation completed successfully!");
                     println!("📦 WASM: {}", result.wasm_path);
-                    
+
                     if let Some(js_path) = result.js_path {
                         println!("📝 JS: {}", js_path);
                     }
-                    
+
                     if result.is_webapp {
                         println!("🌐 Web application compiled successfully");
                     }
@@ -194,23 +194,81 @@ fn main() {
             }
         }
 
-        Commands::Check { project } => {
-            if !plugin.can_handle(&project) {
-                println!("❌ Not a valid Rust project");
-                std::process::exit(1);
-            }
+        Commands::Check { project } => match plugin.analyze_project(&project) {
+            Ok(info) => {
+                println!("📦 Project Analysis");
+                println!("═══════════════════");
+                println!("Name: {}", info.name);
+                println!("Version: {}", info.version);
 
-            let missing_deps = plugin.check_dependencies();
-            if missing_deps.is_empty() {
-                println!("✅ All dependencies are available");
-            } else {
-                println!("❌ Missing dependencies:");
-                for dep in missing_deps {
-                    println!("  - {}", dep);
+                let project_type_desc = match info.project_type {
+                    wasmrust::ProjectType::StandardWasm => "Standard WebAssembly",
+                    wasmrust::ProjectType::WasmBindgen => "WebAssembly with JS bindings",
+                    wasmrust::ProjectType::WebApplication => "Web Application",
+                };
+                println!("Type: {}", project_type_desc);
+
+                let strategy_desc = match info.build_strategy {
+                    wasmrust::BuildStrategy::Cargo => "cargo build",
+                    wasmrust::BuildStrategy::WasmPack => "wasm-pack",
+                    wasmrust::BuildStrategy::Trunk => "trunk + wasm-pack",
+                };
+                println!("Build Strategy: {}", strategy_desc);
+
+                if !info.frameworks.is_empty() {
+                    println!("Frameworks: {}", info.frameworks.join(", "));
+                }
+
+                println!();
+                println!("🔧 Dependencies");
+                println!("═══════════════");
+
+                let mut all_good = true;
+
+                println!("Required:");
+                for dep in &info.dependencies.required {
+                    let status = if dep.available { "✅" } else { "❌" };
+                    println!("  {} {} - {}", status, dep.name, dep.reason);
+                    if !dep.available {
+                        all_good = false;
+                    }
+                }
+
+                if !info.dependencies.optional.is_empty() {
+                    println!();
+                    println!("Optional:");
+                    for dep in &info.dependencies.optional {
+                        let status = if dep.available { "✅" } else { "⚠️ " };
+                        println!("  {} {} - {}", status, dep.name, dep.reason);
+                    }
+                }
+
+                println!();
+                if all_good {
+                    println!("🎉 Project is ready to build!");
+                } else {
+                    println!(
+                        "⚠️  Some required dependencies are missing. Install them to proceed."
+                    );
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                match e {
+                    wasmrust::WasmRustError::InvalidProject(msg) => {
+                        eprintln!("❌ Invalid project: {}", msg);
+                    }
+                    wasmrust::WasmRustError::TomlParse(parse_err) => {
+                        eprintln!("❌ Invalid Cargo.toml syntax:");
+                        eprintln!("   {}", parse_err);
+                    }
+                    _ => {
+                        eprintln!("❌ Error analyzing project: {}", e);
+                    }
                 }
                 std::process::exit(1);
             }
-        }
+        },
 
         Commands::Info => {
             println!("WasmRust v{}", env!("CARGO_PKG_VERSION"));
