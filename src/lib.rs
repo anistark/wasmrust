@@ -143,7 +143,7 @@ impl WasmRustPlugin {
         let content = fs::read_to_string(&cargo_toml_path)?;
 
         let cargo_toml: CargoTomlFull =
-            toml::from_str(&content).map_err(|e| WasmRustError::TomlParse(e))?;
+            toml::from_str(&content).map_err(WasmRustError::TomlParse)?;
 
         let name = cargo_toml.package.name.clone();
         let version = cargo_toml.package.version.clone();

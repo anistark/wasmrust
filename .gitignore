@@ -24,4 +24,4 @@ target/
 .DS_Store
 
 # example files
-examples/*
+# examples/*

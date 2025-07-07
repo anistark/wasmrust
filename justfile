@@ -42,6 +42,19 @@ test:
 check:
     cargo check
 
+# Run examples
+examples:
+    @echo "🔧 Building examples..."
+    @echo ""
+    @echo "1. Simple Rust WASM:"
+    just run compile --project ./examples/simple-rust --output ./examples/simple-rust/dist
+    @echo ""
+    @echo "2. Simple Web (wasm-bindgen):"
+    just run compile --project ./examples/simple-web --output ./examples/simple-web/dist
+    @echo ""
+    @echo "3. Complex Yew App:"
+    just run compile --project ./examples/complex-yew --output ./examples/complex-yew/dist
+
 # Publish to crates.io (dry run first)
 publish-dry:
     cargo publish --dry-run

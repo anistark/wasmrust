@@ -1,87 +1,163 @@
-# WasmRust Plugin
+# WasmRust
 
-[![Crates.io](https://img.shields.io/crates/v/wasmrust)](https://crates.io/crates/wasmrust)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-Rust WebAssembly plugin for [Wasmrun](https://github.com/anistark/wasmrun) - compile Rust projects to WebAssembly with wasm-bindgen and web framework support.
+Rust WebAssembly plugin for Wasmrun. Compile and run Rust projects as WebAssembly with intelligent build strategy detection.
 
 ## Installation
 
-### Via Wasmrun (Recommended)
-
-```sh
-wasmrun plugin install wasmrust
-```
-
-### Direct Installation (For Testing/Dev only)
-
-```sh
-cargo install wasmrust
-```
-
-### From Source (For contributors/experimental features)
-
-```sh
-git clone https://github.com/anistark/wasmrust
-cd wasmrust
-cargo install --path .
+```bash
+cargo install --path . --features cli
 ```
 
 ## Usage
 
-### With Wasmrun
+### Commands
 
-Once installed as a plugin, Wasmrun will automatically use wasmrust for Rust projects:
+```bash
+# Run project (default command)
+wasmrust run --project ./my-project
+wasmrust  # same as above with current directory
 
-```sh
-# Automatic detection for Rust projects
-wasmrun run ./my-rust-project
+# Compile project
+wasmrust compile --project ./my-project --output ./dist
 
-# Compile Rust project to WASM
-wasmrun compile ./my-rust-project --optimization size
+# Check project and dependencies
+wasmrust check --project ./my-project
 
-# Web application development with live reload
-wasmrun run ./my-yew-app --watch
+# Show info
+wasmrust info
 ```
 
-### Standalone Usage (For testing/dev)
+### Options
 
-TBD
+```bash
+# Optimization levels
+--optimization debug|release|size
 
-## Build Configuration
+# Output directory
+--output ./custom-dist
 
-### Optimization Levels
-
-- **`debug`** - Fast compilation, full symbols, no optimization
-- **`release`** - Optimized for performance (default)
-- **`size`** - Optimized for minimal file size
-
-### Target Types
-
-- **`wasm`** - Standard WebAssembly output
-- **`webapp`** - Complete web application with HTML/JS/CSS
-
-## Integration with Wasmrun
-
-When installed as a Wasmrun plugin, wasmrust provides:
-
-### Automatic Detection
-
-Wasmrust automatically handles Rust projects when:
-- `Cargo.toml` file is present in the project root
-- `.rs` files are detected in the project
-
-### Plugin Capabilities
-
-```toml
-[package.metadata.wasm-plugin.capabilities]
-compile_wasm = true
-compile_webapp = true
-live_reload = true
-optimization = true
-custom_targets = ["wasm32-unknown-unknown", "web"]
+# Verbose output
+--verbose
 ```
 
-### Dependency Checking
+## Project Types
 
-The plugin automatically verifies that required tools are installed and provides helpful error messages for missing dependencies.
+WasmRust automatically detects and handles:
+
+- **Standard WASM**: Basic Rust → WebAssembly compilation
+- **wasm-bindgen**: JS bindings with web-sys/js-sys
+- **Web Applications**: Full web apps (Yew, Leptos, Dioxus, etc.)
+
+## Build Strategies
+
+- **cargo**: Standard WASM compilation
+- **wasm-pack**: For wasm-bindgen projects  
+- **trunk**: For web applications with Trunk
+
+## Development (justfile)
+
+```bash
+# Install just: cargo install just
+
+# Format code
+just format
+
+# Lint code
+just lint
+
+# Run tests
+just test
+
+# Build project
+just build
+
+# Build with CLI features
+just build-cli
+
+# Run CLI with arguments
+just cli --help
+just cli check --project ./examples/simple-rust
+
+# Build and test examples
+just examples
+
+# Publish to crates.io
+just publish-dry  # dry run first
+just publish
+
+# Development cycle
+just dev  # format + lint + test + build
+```
+
+## Examples
+
+### 1. Simple Rust WASM
+
+```rust
+// examples/simple-rust/src/lib.rs
+#[no_mangle]
+pub extern "C" fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+```
+
+```bash
+wasmrust compile --project ./examples/simple-rust
+```
+
+### 2. Web with wasm-bindgen
+
+```rust
+// examples/simple-web/src/lib.rs
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn greet(name: &str) {
+    web_sys::console::log_1(&format!("Hello, {}!", name).into());
+}
+```
+
+```bash
+wasmrust compile --project ./examples/simple-web
+```
+
+### 3. Yew Web Application
+
+```rust
+// examples/complex-yew/src/main.rs
+use yew::prelude::*;
+
+#[function_component(App)]
+fn app() -> Html {
+    html! { <h1>{"Hello Yew!"}</h1> }
+}
+
+fn main() {
+    yew::Renderer::<App>::new().render();
+}
+```
+
+```bash
+wasmrust compile --project ./examples/complex-yew
+```
+
+## Dependencies
+
+### Required
+- `cargo` (Rust toolchain)
+- `rustc` (Rust compiler)  
+- `wasm32-unknown-unknown` target
+
+### Optional (auto-detected)
+- `wasm-pack` (for wasm-bindgen projects)
+- `trunk` (for web applications)
+- `wasm-opt` (WebAssembly optimizer)
+
+Check your setup:
+```bash
+wasmrust check
+```
+
+## License
+
+MIT
