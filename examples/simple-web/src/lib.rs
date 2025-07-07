@@ -1,5 +1,4 @@
 use wasm_bindgen::prelude::*;
-use web_sys::console;
 
 #[wasm_bindgen]
 extern "C" {
@@ -13,7 +12,7 @@ pub fn greet(name: &str) {
 
 #[wasm_bindgen]
 pub fn add(a: i32, b: i32) -> i32 {
-    console::log_1(&format!("Adding {} + {}", a, b).into());
+    web_sys::console::log_1(&format!("Adding {} + {}", a, b).into());
     a + b
 }
 

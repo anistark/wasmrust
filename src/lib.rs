@@ -299,6 +299,12 @@ impl WasmRustPlugin {
     }
 
     pub fn compile(&self, config: &CompileConfig) -> Result<CompileResult> {
+        // Ensure output directory exists
+        if let Some(parent) = Path::new(&config.output_dir).parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::create_dir_all(&config.output_dir)?;
+
         if self.uses_wasm_bindgen(&config.project_path) {
             if self.is_rust_web_application(&config.project_path) {
                 self.compile_web_application(config)
@@ -359,7 +365,7 @@ impl WasmRustPlugin {
     }
 
     fn compile_standard_wasm(&self, config: &CompileConfig) -> Result<CompileResult> {
-        self.ensure_wasm32_target()?;
+        self.ensure_wasm32_target(config.verbose)?;
 
         let mut args = vec!["build", "--target", "wasm32-unknown-unknown"];
 
@@ -371,6 +377,10 @@ impl WasmRustPlugin {
             }
         }
 
+        if config.verbose {
+            println!("Running: cargo {}", args.join(" "));
+        }
+
         let output = Command::new("cargo")
             .args(&args)
             .current_dir(&config.project_path)
@@ -378,7 +388,11 @@ impl WasmRustPlugin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WasmRustError::CompilationFailed(stderr.to_string()));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(WasmRustError::CompilationFailed(format!(
+                "stdout: {}\nstderr: {}",
+                stdout, stderr
+            )));
         }
 
         let profile = match config.optimization {
@@ -393,9 +407,10 @@ impl WasmRustPlugin {
             .join(format!("{}.wasm", wasm_name));
 
         if !wasm_path.exists() {
-            return Err(WasmRustError::CompilationFailed(
-                "WASM file not found after compilation".to_string(),
-            ));
+            return Err(WasmRustError::CompilationFailed(format!(
+                "WASM file not found at: {}",
+                wasm_path.display()
+            )));
         }
 
         let output_wasm = Path::new(&config.output_dir).join(format!("{}.wasm", wasm_name));
@@ -428,6 +443,10 @@ impl WasmRustPlugin {
 
         args.extend(["--out-dir", &config.output_dir]);
 
+        if config.verbose {
+            println!("Running: wasm-pack {}", args.join(" "));
+        }
+
         let output = Command::new("wasm-pack")
             .args(&args)
             .current_dir(&config.project_path)
@@ -435,7 +454,11 @@ impl WasmRustPlugin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WasmRustError::CompilationFailed(stderr.to_string()));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(WasmRustError::CompilationFailed(format!(
+                "stdout: {}\nstderr: {}",
+                stdout, stderr
+            )));
         }
 
         let package_name = self.get_package_name(&config.project_path)?;
@@ -476,6 +499,10 @@ impl WasmRustPlugin {
 
         args.extend(["--dist", &config.output_dir]);
 
+        if config.verbose {
+            println!("Running: trunk {}", args.join(" "));
+        }
+
         let output = Command::new("trunk")
             .args(&args)
             .current_dir(&config.project_path)
@@ -483,7 +510,11 @@ impl WasmRustPlugin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WasmRustError::CompilationFailed(stderr.to_string()));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(WasmRustError::CompilationFailed(format!(
+                "stdout: {}\nstderr: {}",
+                stdout, stderr
+            )));
         }
 
         let index_path = Path::new(&config.output_dir).join("index.html");
@@ -511,8 +542,12 @@ impl WasmRustPlugin {
         Ok(cargo_toml.package.name.replace("-", "_"))
     }
 
-    fn ensure_wasm32_target(&self) -> Result<()> {
+    fn ensure_wasm32_target(&self, verbose: bool) -> Result<()> {
         if !self.is_wasm_target_installed() {
+            if verbose {
+                println!("Installing wasm32-unknown-unknown target...");
+            }
+
             let output = Command::new("rustup")
                 .args(["target", "add", "wasm32-unknown-unknown"])
                 .output()?;
@@ -539,8 +574,21 @@ impl WasmRustPlugin {
             .unwrap_or(false)
     }
 
+    // Improved cross-platform tool detection
     fn is_tool_available(&self, tool: &str) -> bool {
-        Command::new("which")
+        // Try to run the tool with --version or --help first
+        if let Ok(output) = Command::new(tool).arg("--version").output() {
+            return output.status.success();
+        }
+
+        // Fall back to which/where command
+        let which_cmd = if cfg!(target_os = "windows") {
+            "where"
+        } else {
+            "which"
+        };
+
+        Command::new(which_cmd)
             .arg(tool)
             .output()
             .map(|output| output.status.success())
