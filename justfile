@@ -42,7 +42,35 @@ test:
 check:
     cargo check
 
-# Run examples
+# Check individual example projects
+check-examples:
+    @echo "🔍 Checking examples..."
+    @echo ""
+    @echo "1. Checking simple-rust:"
+    just run check --project ./examples/simple-rust
+    @echo ""
+    @echo "2. Checking simple-web:"
+    just run check --project ./examples/simple-web
+    @echo ""
+    @echo "3. Checking complex-yew:"
+    just run check --project ./examples/complex-yew
+
+# Run examples with verbose output for debugging
+examples-verbose:
+    @echo "🔧 Building examples (verbose)..."
+    @echo ""
+    @echo "1. Simple Rust WASM:"
+    just run compile --project ./examples/simple-rust --output ./examples/simple-rust/dist --verbose
+    @echo ""
+    @echo "2. Simple Web (wasm-bindgen):"
+    just run compile --project ./examples/simple-web --output ./examples/simple-web/dist --verbose
+    @echo ""
+    @echo "3. Complex Yew App:"
+    @echo "📄 Copying shared index.html template..."
+    cp ./examples/index.html ./examples/complex-yew/index.html
+    just run compile --project ./examples/complex-yew --output ./examples/complex-yew/dist --verbose
+
+# Run examples with shared HTML template
 examples:
     @echo "🔧 Building examples..."
     @echo ""
@@ -53,7 +81,52 @@ examples:
     just run compile --project ./examples/simple-web --output ./examples/simple-web/dist
     @echo ""
     @echo "3. Complex Yew App:"
-    just run compile --project ./examples/complex-yew --output ./examples/complex-yew/dist
+    @echo "📄 Copying shared index.html template..."
+    cp ./examples/index.html ./examples/complex-yew/index.html
+    @echo "🔍 Verifying index.html was copied:"
+    ls -la ./examples/complex-yew/index.html
+    @echo "📋 Contents of index.html:"
+    head -5 ./examples/complex-yew/index.html
+    @echo "🔧 Building with verbose output:"
+    just run compile --project ./examples/complex-yew --output ./examples/complex-yew/dist --verbose
+
+# Clean example outputs
+clean-examples:
+    @echo "🧹 Cleaning example outputs..."
+    rm -rf ./examples/*/dist
+    rm -rf ./examples/*/target
+    rm -f ./examples/complex-yew/index.html  # Remove copied template
+
+# Debug the complex-yew example specifically
+debug-yew:
+    @echo "🔍 Debugging complex-yew example..."
+    @echo ""
+    @echo "📁 Current directory contents:"
+    ls -la ./examples/complex-yew/
+    @echo ""
+    @echo "📄 Copying shared index.html template..."
+    cp ./examples/index.html ./examples/complex-yew/index.html
+    @echo ""
+    @echo "✅ Template copied, verifying:"
+    ls -la ./examples/complex-yew/index.html
+    @echo ""
+    @echo "📋 First few lines of index.html:"
+    head -10 ./examples/complex-yew/index.html
+    @echo ""
+    @echo "🔧 Checking project info:"
+    just run check --project ./examples/complex-yew
+    @echo ""
+    @echo "🚀 Running trunk directly (manual test):"
+    cd ./examples/complex-yew && trunk build --dist ./dist
+    @echo ""
+    @echo "📦 Checking if trunk generated files:"
+    ls -la ./examples/complex-yew/dist/
+
+# Test a specific example
+test-example example:
+    @echo "🧪 Testing {{example}} example..."
+    just run check --project ./examples/{{example}}
+    just run compile --project ./examples/{{example}} --output ./examples/{{example}}/dist --verbose
 
 # Publish to crates.io (dry run first)
 publish-dry:
@@ -72,3 +145,6 @@ dev: format lint test build
 
 # Full CI pipeline
 ci: format lint test build
+
+# Development cycle with examples
+dev-full: clean format lint test build check-examples examples

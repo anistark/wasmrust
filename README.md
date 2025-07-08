@@ -52,42 +52,7 @@ WasmRust automatically detects and handles:
 
 - **cargo**: Standard WASM compilation
 - **wasm-pack**: For wasm-bindgen projects  
-- **trunk**: For web applications with Trunk
-
-## Development (justfile)
-
-```bash
-# Install just: cargo install just
-
-# Format code
-just format
-
-# Lint code
-just lint
-
-# Run tests
-just test
-
-# Build project
-just build
-
-# Build with CLI features
-just build-cli
-
-# Run CLI with arguments
-just cli --help
-just cli check --project ./examples/simple-rust
-
-# Build and test examples
-just examples
-
-# Publish to crates.io
-just publish-dry  # dry run first
-just publish
-
-# Development cycle
-just dev  # format + lint + test + build
-```
+- **trunk**: For web applications
 
 ## Examples
 
@@ -101,10 +66,6 @@ pub extern "C" fn add(a: i32, b: i32) -> i32 {
 }
 ```
 
-```bash
-wasmrust compile --project ./examples/simple-rust
-```
-
 ### 2. Web with wasm-bindgen
 
 ```rust
@@ -115,10 +76,6 @@ use wasm_bindgen::prelude::*;
 pub fn greet(name: &str) {
     web_sys::console::log_1(&format!("Hello, {}!", name).into());
 }
-```
-
-```bash
-wasmrust compile --project ./examples/simple-web
 ```
 
 ### 3. Yew Web Application
@@ -137,8 +94,17 @@ fn main() {
 }
 ```
 
+## Development
+
 ```bash
-wasmrust compile --project ./examples/complex-yew
+# Build and test examples
+just examples
+
+# Format, lint, test, build
+just dev
+
+# Clean outputs
+just clean-examples
 ```
 
 ## Dependencies
@@ -151,7 +117,6 @@ wasmrust compile --project ./examples/complex-yew
 ### Optional (auto-detected)
 - `wasm-pack` (for wasm-bindgen projects)
 - `trunk` (for web applications)
-- `wasm-opt` (WebAssembly optimizer)
 
 Check your setup:
 ```bash

@@ -165,8 +165,19 @@
             box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
         }
     </style>
-</head>
+<link rel="modulepreload" href="/complex-yew-10a7340dc73ea8b6.js" crossorigin="anonymous" integrity="sha384-fZSV0bLSAImMyH3vidTOX/GEz/QZ9KY3PAWX/tOmF2TaHnisn3mpOe//dEyMUxgn"><link rel="preload" href="/complex-yew-10a7340dc73ea8b6_bg.wasm" crossorigin="anonymous" integrity="sha384-Bk0muN97wvng2MVI5qaCtLJLBOrY9Bh86ONktQajSgkSVAhz50okppKmytp6piAS" as="fetch" type="application/wasm"></head>
 <body>
     <!-- Trunk will inject the compiled WebAssembly and JavaScript here -->
-</body>
+
+<script type="module">
+import init, * as bindings from '/complex-yew-10a7340dc73ea8b6.js';
+const wasm = await init({ module_or_path: '/complex-yew-10a7340dc73ea8b6_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
 </html>

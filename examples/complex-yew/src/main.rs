@@ -152,27 +152,31 @@ impl Component for TodoApp {
 }
 
 impl TodoApp {
-    fn view_todo(&self, todo: &Todo, link: &Scope<Self>) -> Html {
+    fn view_todo(&self, todo: &Todo, link: &html::Scope<Self>) -> Html {
+        let todo_id = todo.id;
+        let todo_completed = todo.completed;
+        let todo_text = todo.text.clone();
+        
         html! {
-            <li class={if todo.completed { "completed" } else { "" }}>
+            <li class={if todo_completed { "completed" } else { "" }}>
                 <div class="view">
                     <input
                         class="toggle"
                         type="checkbox"
-                        checked={todo.completed}
-                        onchange={link.callback(move |_| Msg::ToggleTodo(todo.id))}
+                        checked={todo_completed}
+                        onchange={link.callback(move |_| Msg::ToggleTodo(todo_id))}
                     />
-                    <label>{&todo.text}</label>
+                    <label>{todo_text}</label>
                     <button 
                         class="destroy"
-                        onclick={link.callback(move |_| Msg::DeleteTodo(todo.id))}
+                        onclick={link.callback(move |_| Msg::DeleteTodo(todo_id))}
                     />
                 </div>
             </li>
         }
     }
 
-    fn view_filter_button(&self, filter: &Filter, text: &str, link: &Scope<Self>) -> Html {
+    fn view_filter_button(&self, filter: &Filter, text: &str, link: &html::Scope<Self>) -> Html {
         let selected = self.filter == *filter;
         let filter = filter.clone();
         
