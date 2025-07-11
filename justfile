@@ -97,31 +97,6 @@ clean-examples:
     rm -rf ./examples/*/target
     rm -f ./examples/complex-yew/index.html  # Remove copied template
 
-# Debug the complex-yew example specifically
-debug-yew:
-    @echo "🔍 Debugging complex-yew example..."
-    @echo ""
-    @echo "📁 Current directory contents:"
-    ls -la ./examples/complex-yew/
-    @echo ""
-    @echo "📄 Copying shared index.html template..."
-    cp ./examples/index.html ./examples/complex-yew/index.html
-    @echo ""
-    @echo "✅ Template copied, verifying:"
-    ls -la ./examples/complex-yew/index.html
-    @echo ""
-    @echo "📋 First few lines of index.html:"
-    head -10 ./examples/complex-yew/index.html
-    @echo ""
-    @echo "🔧 Checking project info:"
-    just run check --project ./examples/complex-yew
-    @echo ""
-    @echo "🚀 Running trunk directly (manual test):"
-    cd ./examples/complex-yew && trunk build --dist ./dist
-    @echo ""
-    @echo "📦 Checking if trunk generated files:"
-    ls -la ./examples/complex-yew/dist/
-
 # Test a specific example
 test-example example:
     @echo "🧪 Testing {{example}} example..."
@@ -142,9 +117,3 @@ install:
 
 # Quick development cycle: format, lint, test, build
 dev: format lint test build
-
-# Full CI pipeline
-ci: format lint test build
-
-# Development cycle with examples
-dev-full: clean format lint test build check-examples examples

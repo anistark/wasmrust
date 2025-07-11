@@ -1,35 +1,38 @@
 # WasmRust
 
-Rust WebAssembly plugin for Wasmrun. Compile and run Rust projects as WebAssembly with intelligent build strategy detection.
+[![Crates.io Version](https://img.shields.io/crates/v/wasmrust)](https://crates.io/crates/wasmrust) [![Crates.io Downloads](https://img.shields.io/crates/d/wasmrust)](https://crates.io/crates/wasmrust) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/wasmrust)](https://crates.io/crates/wasmrust) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/wasmrust) [![Contributors](https://img.shields.io/github/contributors/anistark/wasmrust)](https://github.com/anistark/wasmrust/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+
+![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white) WebAssembly plugin for [Wasmrun](https://github.com/anistark/wasmrun).
+Compile and run Rust projects to WebAssembly to run easily on any wasm based ecosystem. 
 
 ## Installation
 
-```bash
-cargo install --path . --features cli
+```sh
+wasmrun plugin install wasmrust
 ```
 
 ## Usage
 
-### Commands
+### Commands (using wasmrun with wasmrust as plugin)
 
-```bash
+```sh
 # Run project (default command)
-wasmrust run --project ./my-project
-wasmrust  # same as above with current directory
+wasmrun -p ./my-project
+wasmrun  # same as above with current directory
 
 # Compile project
-wasmrust compile --project ./my-project --output ./dist
+wasmrun compile --project ./my-project --output ./dist
 
 # Check project and dependencies
-wasmrust check --project ./my-project
+wasmrun check --project ./my-project
 
 # Show info
-wasmrust info
+wasmrun info
 ```
 
 ### Options
 
-```bash
+```sh
 # Optimization levels
 --optimization debug|release|size
 
@@ -96,7 +99,15 @@ fn main() {
 
 ## Development
 
-```bash
+## Dev Installation (for dev testing and developement)
+
+```sh
+cargo install --path . --features cli
+```
+
+Using justfile:
+
+```sh
 # Build and test examples
 just examples
 
@@ -119,10 +130,10 @@ just clean-examples
 - `trunk` (for web applications)
 
 Check your setup:
-```bash
+```sh
 wasmrust check
 ```
 
 ## License
 
-MIT
+[MIT](./LICENSE)
