@@ -607,30 +607,6 @@ impl WasmRustPlugin {
         })
     }
 
-    /// Helper function to copy directory contents recursively
-    fn copy_dir_recursive(&self, from: &Path, to: &Path) -> Result<()> {
-        if !from.exists() {
-            return Ok(());
-        }
-
-        fs::create_dir_all(to)?;
-
-        for entry in fs::read_dir(from)? {
-            let entry = entry?;
-            let file_type = entry.file_type()?;
-            let from_path = entry.path();
-            let to_path = to.join(entry.file_name());
-
-            if file_type.is_dir() {
-                self.copy_dir_recursive(&from_path, &to_path)?;
-            } else {
-                fs::copy(&from_path, &to_path)?;
-            }
-        }
-
-        Ok(())
-    }
-
     fn get_package_name(&self, project_path: &str) -> Result<String> {
         let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
         let content = fs::read_to_string(cargo_toml_path)?;
