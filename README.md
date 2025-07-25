@@ -11,51 +11,63 @@ Compile and run Rust projects to WebAssembly to run easily on any wasm based eco
 wasmrun plugin install wasmrust
 ```
 
-## Usage
-
-### Commands (using wasmrun with wasmrust as plugin)
+### Standalone Installation (For testing only for now)
 
 ```sh
-# Run project (default command)
-wasmrun -p ./my-project
-wasmrun  # same as above with current directory
-
-# Compile project
-wasmrun compile --project ./my-project --output ./dist
-
-# Check project and dependencies
-wasmrun check --project ./my-project
-
-# Show info
-wasmrun info
+# For development and standalone usage
+cargo install wasmrust --features cli
 ```
 
-### Options
+## 🚀 Usage
+
+### Primary Usage (via Wasmrun)
 
 ```sh
-# Optimization levels
---optimization debug|release|size
+# Wasmrun automatically detects Rust projects and uses wasmrust plugin
 
-# Output directory
---output ./custom-dist
+# Run Rust project (auto-detection)
+wasmrun run ./my-rust-project
 
-# Verbose output
---verbose
+# Compile with optimization
+wasmrun compile ./my-rust-project --optimization size
+
+# Force Rust plugin usage
+wasmrun run ./mixed-project --language rust
+
+# Plugin-specific commands
+wasmrun plugin info wasmrust
+wasmrun plugin list
 ```
 
-## Project Types
+### Standalone Usage (CLI Mode)
 
-WasmRust automatically detects and handles:
+```sh
+# Direct wasmrust usage (when installed with --features cli)
+wasmrust compile --project ./my-project --output ./dist
+wasmrust run-for-execution ./my-project ./output
+wasmrust info ./my-project
+```
 
+## 🔍 Project Detection & Support
+
+WasmRust automatically detects and optimizes compilation for:
+
+### Project Types
 - **Standard WASM**: Basic Rust → WebAssembly compilation
-- **wasm-bindgen**: JS bindings with web-sys/js-sys
-- **Web Applications**: Full web apps (Yew, Leptos, Dioxus, etc.)
+- **wasm-bindgen**: JavaScript bindings with web-sys/js-sys integration
+- **Web Applications**: Full-stack web apps with framework support
 
-## Build Strategies
+### Supported Frameworks
+- **[Yew](https://yew.rs/)**: Modern Rust framework for creating multi-threaded frontend web apps
+- **[Leptos](https://leptos.dev/)**: Full-stack, compile-time optimal Rust framework
+- **[Dioxus](https://dioxuslabs.com/)**: Cross-platform GUI library for desktop, web, mobile
+- **[Sycamore](https://sycamore-rs.netlify.app/)**: Reactive library for creating web apps
+- **[Trunk](https://trunkrs.dev/)**: Build tool for Rust-generated WebAssembly web applications
 
-- **cargo**: Standard WASM compilation
-- **wasm-pack**: For wasm-bindgen projects  
-- **trunk**: For web applications
+### Build Strategies
+- **Cargo**: Standard WASM compilation with `wasm32-unknown-unknown` target
+- **wasm-pack**: Optimized builds for wasm-bindgen projects with JS integration
+- **Trunk**: Complete web application builds with assets and bundling
 
 ## Examples
 
@@ -82,7 +94,6 @@ pub fn greet(name: &str) {
 ```
 
 ### 3. Yew Web Application
-
 ```rust
 // examples/complex-yew/src/main.rs
 use yew::prelude::*;
@@ -102,38 +113,127 @@ fn main() {
 ## Dev Installation (for dev testing and developement)
 
 ```sh
-cargo install --path . --features cli
+# Development build (fast compilation)
+wasmrun compile ./project --optimization debug
+
+# Production build (balanced)
+wasmrun compile ./project --optimization release
+
+# Size-optimized build (smallest output)
+wasmrun compile ./project --optimization size
 ```
 
-Using justfile:
-
+### Advanced Configuration
 ```sh
-# Build and test examples
-just examples
+# Verbose output for debugging
+wasmrun compile ./project --verbose
 
-# Format, lint, test, build
-just dev
+# Custom output directory
+wasmrun compile ./project --output ./custom-dist
 
-# Clean outputs
-just clean-examples
+# Web application mode with live reload
+wasmrun run ./web-project --watch --port 3000
 ```
 
-## Dependencies
+## 🔧 Dependencies
 
 ### Required
-- `cargo` (Rust toolchain)
-- `rustc` (Rust compiler)  
-- `wasm32-unknown-unknown` target
+- **cargo** - Rust build tool and package manager
+- **rustc** - Rust compiler
+- **wasm32-unknown-unknown** - WebAssembly compilation target
 
-### Optional (auto-detected)
-- `wasm-pack` (for wasm-bindgen projects)
-- `trunk` (for web applications)
-
-Check your setup:
 ```sh
-wasmrust check
+# Install target if missing
+rustup target add wasm32-unknown-unknown
 ```
 
-## License
+### Optional (Auto-detected)
+- **wasm-pack** - Required for wasm-bindgen projects
+- **trunk** - Required for web applications
+- **wasm-opt** - WebAssembly optimizer (recommended)
 
-[MIT](./LICENSE)
+### Dependency Checking
+```sh
+# Check your environment
+wasmrun plugin info wasmrust
+
+# Or with standalone CLI
+wasmrust info ./my-project
+```
+
+## 🔄 Plugin Integration Details
+
+### How It Works
+1. **Project Detection**: Wasmrun scans for `Cargo.toml` and `.rs` files
+2. **Plugin Loading**: WasmRust loads via dynamic library or binary execution
+3. **Framework Analysis**: Automatic detection of web frameworks and build tools
+4. **Optimized Compilation**: Framework-specific build strategies
+5. **Asset Generation**: WASM + JS + HTML output as needed
+
+### Compatibility
+- **Unix/Linux/macOS**: Dynamic loading preferred
+- **Windows**: Binary fallback mode
+- **All platforms**: Graceful degradation ensures functionality
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+**"Plugin not found"**:
+```sh
+# Verify installation
+wasmrun plugin list
+wasmrun plugin info wasmrust
+
+# Reinstall if needed
+wasmrun plugin install wasmrust
+```
+
+**"wasm32-unknown-unknown target not found"**:
+```sh
+rustup target add wasm32-unknown-unknown
+```
+
+**"wasm-pack not found" (for wasm-bindgen projects)**:
+```sh
+cargo install wasm-pack
+```
+
+**"trunk not found" (for web applications)**:
+```sh
+cargo install trunk
+```
+
+### Debug Mode
+```sh
+# Enable verbose output
+wasmrun compile ./project --verbose
+
+# Check dependencies
+wasmrun plugin info wasmrust
+
+# Test plugin loading
+WASMRUN_VERBOSE=1 wasmrun run ./project
+```
+
+### Development Setup
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests and documentation
+5. Submit a pull request
+
+## 📄 License
+
+[MIT License](./LICENSE) - see the LICENSE file for details.
+
+## 🔗 Related Projects
+
+- **[Wasmrun](https://github.com/anistark/wasmrun)** - Universal WebAssembly runtime and plugin system
+- **[WasmGo](https://github.com/anistark/wasmgo)** - Go WebAssembly plugin for Wasmrun
+- **[wasm-bindgen](https://github.com/rustwasm/wasm-bindgen)** - Facilitating high-level interactions between Wasm modules and JavaScript
+- **[Trunk](https://github.com/thedodd/trunk)** - Build tool for Rust-generated WebAssembly
+
+**Made with ❤️ for the Rust and WebAssembly communities**
+
+*⭐ If you find WasmRust useful, please consider starring the repository!*

@@ -1,6 +1,6 @@
 [package]
 name = "wasmrust"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
 authors = ["Kumar Anirudha <wasm@anirudha.dev>"]
 description = "Rust WebAssembly plugin for Wasmrun - compile Rust projects to WebAssembly with wasm-bindgen support"
@@ -15,6 +15,7 @@ readme = "README.md"
 name = "wasmrust"
 crate-type = ["cdylib", "rlib"]
 
+# Optional CLI binary for standalone usage
 [[bin]]
 name = "wasmrust"
 required-features = ["cli"]
@@ -24,6 +25,10 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 thiserror = "1.0"
 clap = { version = "4.0", features = ["derive"], optional = true }
+
+# For dynamic loading (Unix-like systems)
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+libloading = "0.8"
 
 [features]
 default = []
@@ -46,3 +51,12 @@ custom_targets = ["wasm32-unknown-unknown", "web"]
 
 [package.metadata.wasm-plugin.dependencies]
 tools = ["cargo", "rustc", "wasm-pack"]
+
+# Dynamic loading symbols
+[package.metadata.wasm-plugin.exports]
+create_wasm_builder = "create_wasm_builder"
+can_handle_project = "wasmrust_can_handle_project"
+build = "wasmrust_build"
+clean = "wasmrust_clean"
+clone_box = "wasmrust_clone_box"
+drop = "wasmrust_drop"
