@@ -115,7 +115,7 @@ fn main() {
             if !missing_deps.is_empty() {
                 eprintln!("Error: Missing dependencies:");
                 for dep in missing_deps {
-                    eprintln!("  - {}", dep);
+                    eprintln!("  - {dep}");
                 }
                 std::process::exit(1);
             }
@@ -128,14 +128,14 @@ fn main() {
                 Ok(entry_point) => {
                     if verbose {
                         println!("✅ Project ready for execution!");
-                        println!("📦 Entry point: {}", entry_point);
+                        println!("📦 Entry point: {entry_point}");
                     } else {
                         // For scripting - just output the entry point
-                        println!("{}", entry_point);
+                        println!("{entry_point}");
                     }
                 }
                 Err(e) => {
-                    eprintln!("❌ Failed to prepare project for execution: {}", e);
+                    eprintln!("❌ Failed to prepare project for execution: {e}");
                     std::process::exit(1);
                 }
             }
@@ -165,7 +165,7 @@ fn main() {
             if !missing_deps.is_empty() {
                 eprintln!("Error: Missing dependencies:");
                 for dep in missing_deps {
-                    eprintln!("  - {}", dep);
+                    eprintln!("  - {dep}");
                 }
                 std::process::exit(1);
             }
@@ -176,7 +176,7 @@ fn main() {
                     println!("📦 WASM: {}", result.wasm_path);
 
                     if let Some(js_path) = result.js_path {
-                        println!("📝 JS: {}", js_path);
+                        println!("📝 JS: {js_path}");
                     }
 
                     if result.is_webapp {
@@ -188,7 +188,7 @@ fn main() {
                     }
                 }
                 Err(e) => {
-                    eprintln!("❌ Compilation failed: {}", e);
+                    eprintln!("❌ Compilation failed: {e}");
                     std::process::exit(1);
                 }
             }
@@ -206,14 +206,14 @@ fn main() {
                     wasmrust::ProjectType::WasmBindgen => "WebAssembly with JS bindings",
                     wasmrust::ProjectType::WebApplication => "Web Application",
                 };
-                println!("Type: {}", project_type_desc);
+                println!("Type: {project_type_desc}");
 
                 let strategy_desc = match info.build_strategy {
                     wasmrust::BuildStrategy::Cargo => "cargo build",
                     wasmrust::BuildStrategy::WasmPack => "wasm-pack",
                     wasmrust::BuildStrategy::Trunk => "trunk + wasm-pack",
                 };
-                println!("Build Strategy: {}", strategy_desc);
+                println!("Build Strategy: {strategy_desc}");
 
                 if !info.frameworks.is_empty() {
                     println!("Frameworks: {}", info.frameworks.join(", "));
@@ -256,14 +256,14 @@ fn main() {
             Err(e) => {
                 match e {
                     wasmrust::WasmRustError::InvalidProject(msg) => {
-                        eprintln!("❌ Invalid project: {}", msg);
+                        eprintln!("❌ Invalid project: {msg}");
                     }
                     wasmrust::WasmRustError::TomlParse(parse_err) => {
                         eprintln!("❌ Invalid Cargo.toml syntax:");
-                        eprintln!("   {}", parse_err);
+                        eprintln!("   {parse_err}");
                     }
                     _ => {
-                        eprintln!("❌ Error analyzing project: {}", e);
+                        eprintln!("❌ Error analyzing project: {e}");
                     }
                 }
                 std::process::exit(1);

@@ -410,8 +410,7 @@ impl WasmRustPlugin {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(WasmRustError::CompilationFailed(format!(
-                "stdout: {}\nstderr: {}",
-                stdout, stderr
+                "stdout: {stdout}\nstderr: {stderr}",
             )));
         }
 
@@ -424,7 +423,7 @@ impl WasmRustPlugin {
         let wasm_path = Path::new(&config.project_path)
             .join("target/wasm32-unknown-unknown")
             .join(profile)
-            .join(format!("{}.wasm", wasm_name));
+            .join(format!("{wasm_name}.wasm"));
 
         if !wasm_path.exists() {
             return Err(WasmRustError::CompilationFailed(format!(
@@ -433,7 +432,7 @@ impl WasmRustPlugin {
             )));
         }
 
-        let output_wasm = Path::new(&config.output_dir).join(format!("{}.wasm", wasm_name));
+        let output_wasm = Path::new(&config.output_dir).join(format!("{wasm_name}.wasm"));
         fs::copy(&wasm_path, &output_wasm)?;
 
         Ok(CompileResult {
@@ -476,14 +475,13 @@ impl WasmRustPlugin {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(WasmRustError::CompilationFailed(format!(
-                "stdout: {}\nstderr: {}",
-                stdout, stderr
+                "stdout: {stdout}\nstderr: {stderr}"
             )));
         }
 
         let package_name = self.get_package_name(&config.project_path)?;
-        let wasm_path = Path::new(&config.output_dir).join(format!("{}_bg.wasm", package_name));
-        let js_path = Path::new(&config.output_dir).join(format!("{}.js", package_name));
+        let wasm_path = Path::new(&config.output_dir).join(format!("{package_name}_bg.wasm"));
+        let js_path = Path::new(&config.output_dir).join(format!("{package_name}.js"));
 
         Ok(CompileResult {
             wasm_path: wasm_path.to_string_lossy().to_string(),
@@ -540,8 +538,7 @@ impl WasmRustPlugin {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(WasmRustError::CompilationFailed(format!(
-                "stdout: {}\nstderr: {}",
-                stdout, stderr
+                "stdout: {stdout}\nstderr: {stderr}",
             )));
         }
 
@@ -618,8 +615,7 @@ impl WasmRustPlugin {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(WasmRustError::CompilationFailed(format!(
-                    "Failed to install wasm32 target: {}",
-                    stderr
+                    "Failed to install wasm32 target: {stderr}",
                 )));
             }
         }
@@ -781,7 +777,7 @@ impl std::fmt::Display for WasmrunCompilationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WasmrunCompilationError::BuildFailed { language, reason } => {
-                write!(f, "{} build failed: {}", language, reason)
+                write!(f, "{language} build failed: {reason}")
             }
         }
     }
@@ -850,7 +846,7 @@ impl WasmrunWasmBuilder for WasmRustWasmBuilder {
             }
             Err(e) => Err(WasmrunCompilationError::BuildFailed {
                 language: "rust".to_string(),
-                reason: format!("{}", e),
+                reason: format!("{e}"),
             }),
         }
     }
@@ -866,11 +862,11 @@ impl WasmrunWasmBuilder for WasmRustWasmBuilder {
             .args(["clean"])
             .current_dir(project_path)
             .output()
-            .map_err(|e| format!("Failed to execute cargo clean: {}", e))?;
+            .map_err(|e| format!("Failed to execute cargo clean: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("cargo clean failed: {}", stderr).into());
+            return Err(format!("cargo clean failed: {stderr}").into());
         }
 
         Ok(())
@@ -919,6 +915,12 @@ pub extern "C" fn create_wasm_builder() -> *mut c_void {
     Box::into_raw(builder) as *mut c_void
 }
 
+/// Checks if the builder can handle the specified project.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `project_path` must be a valid null-terminated C string
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_can_handle_project(
     builder_ptr: *const c_void,
@@ -937,6 +939,13 @@ pub unsafe extern "C" fn wasmrust_can_handle_project(
     builder.can_handle_project(path_str)
 }
 
+/// Builds the project with the given configuration.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `config` must be a valid pointer to a BuildConfigC
+/// - Caller must call `wasmrust_free_build_result` on the returned pointer
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_build(
     builder_ptr: *const c_void,
@@ -990,7 +999,7 @@ pub unsafe extern "C" fn wasmrust_build(
             Box::into_raw(result_c)
         }
         Err(e) => {
-            let error_msg = CString::new(format!("{}", e)).unwrap();
+            let error_msg = CString::new(format!("{e}")).unwrap();
             let result_c = Box::new(BuildResultC {
                 wasm_path: ptr::null_mut(),
                 js_path: ptr::null_mut(),
@@ -1004,6 +1013,12 @@ pub unsafe extern "C" fn wasmrust_build(
     }
 }
 
+/// Cleans the project build artifacts.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `project_path` must be a valid null-terminated C string
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_clean(
     builder_ptr: *const c_void,
@@ -1022,6 +1037,12 @@ pub unsafe extern "C" fn wasmrust_clean(
     builder.clean(path_str).is_ok()
 }
 
+/// Creates a clone of the builder.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - Caller must call `wasmrust_drop` on the returned pointer
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_clone_box(builder_ptr: *const c_void) -> *mut c_void {
     if builder_ptr.is_null() {
@@ -1033,6 +1054,12 @@ pub unsafe extern "C" fn wasmrust_clone_box(builder_ptr: *const c_void) -> *mut 
     Box::into_raw(cloned) as *mut c_void
 }
 
+/// Drops and frees a builder instance.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - The pointer must not be used after calling this function
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_drop(builder_ptr: *mut c_void) {
     if !builder_ptr.is_null() {
@@ -1040,6 +1067,12 @@ pub unsafe extern "C" fn wasmrust_drop(builder_ptr: *mut c_void) {
     }
 }
 
+/// Frees a build result and associated memory.
+///
+/// # Safety
+///
+/// - `result_ptr` must be a valid pointer to a BuildResultC
+/// - The pointer must not be used after calling this function
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_free_build_result(result_ptr: *mut BuildResultC) {
     if result_ptr.is_null() {
@@ -1061,7 +1094,13 @@ pub unsafe extern "C" fn wasmrust_free_build_result(result_ptr: *mut BuildResult
     }
 }
 
-// Additional utility functions for wasmrun integration
+/// Gets the file extensions supported by this plugin.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `extensions_out` and `count_out` must be valid pointers
+/// - Caller must call `wasmrust_free_string_array` on the returned array
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_get_extensions(
     builder_ptr: *const c_void,
@@ -1091,6 +1130,13 @@ pub unsafe extern "C" fn wasmrust_get_extensions(
     true
 }
 
+/// Gets the entry files used by this plugin.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `entry_files_out` and `count_out` must be valid pointers
+/// - Caller must call `wasmrust_free_string_array` on the returned array
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_get_entry_files(
     builder_ptr: *const c_void,
@@ -1120,6 +1166,12 @@ pub unsafe extern "C" fn wasmrust_get_entry_files(
     true
 }
 
+/// Checks if the plugin supports web applications.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `project_path` must be a valid null-terminated C string
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_supports_web_app(
     builder_ptr: *const c_void,
@@ -1138,6 +1190,11 @@ pub unsafe extern "C" fn wasmrust_supports_web_app(
     builder.plugin.supports_web_app(path_str)
 }
 
+/// Verifies that all required dependencies are available.
+///
+/// # Safety
+///
+/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_verify_dependencies(builder_ptr: *const c_void) -> bool {
     if builder_ptr.is_null() {
@@ -1148,7 +1205,13 @@ pub unsafe extern "C" fn wasmrust_verify_dependencies(builder_ptr: *const c_void
     builder.plugin.verify_dependencies().is_ok()
 }
 
-// Free functions for cleaning up string arrays
+/// Frees a string array allocated by other wasmrust functions.
+///
+/// # Safety
+///
+/// - `array_ptr` must be a valid pointer to a string array
+/// - `count` must be the exact number of strings in the array
+/// - The pointer must not be used after calling this function
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_free_string_array(array_ptr: *mut *mut c_char, count: usize) {
     if array_ptr.is_null() {
