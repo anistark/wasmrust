@@ -4,6 +4,83 @@ use std::path::Path;
 use std::process::Command;
 use thiserror::Error;
 
+// Core plugin types - defined locally since wasmrun-core doesn't exist
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PluginType {
+    Builtin,
+    External,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginCapabilities {
+    pub compile_wasm: bool,
+    pub compile_webapp: bool,
+    pub live_reload: bool,
+    pub optimization: bool,
+    pub custom_targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PluginSource {
+    CratesIo { name: String, version: String },
+    Git { url: String, rev: Option<String> },
+    Local { path: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginInfo {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub author: String,
+    pub extensions: Vec<String>,
+    pub entry_files: Vec<String>,
+    pub plugin_type: PluginType,
+    pub source: Option<PluginSource>,
+    pub dependencies: Vec<String>,
+    pub capabilities: PluginCapabilities,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum OptimizationLevel {
+    Debug,
+    Release,
+    Size,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildConfig {
+    pub input: String,
+    pub output_dir: String,
+    pub optimization: OptimizationLevel,
+    pub target_type: String,
+    pub verbose: bool,
+    pub watch: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildResult {
+    pub output_path: String,
+    pub language: String,
+    pub optimization_level: OptimizationLevel,
+    pub build_time: std::time::Duration,
+    pub file_size: u64,
+}
+
+#[derive(Error, Debug)]
+pub enum CompilationError {
+    #[error("Build failed for {language}: {reason}")]
+    BuildFailed { language: String, reason: String },
+
+    #[error("Tool execution failed - {tool}: {reason}")]
+    ToolExecutionFailed { tool: String, reason: String },
+
+    #[error("Invalid configuration: {reason}")]
+    InvalidConfiguration { reason: String },
+}
+
+pub type CompilationResult<T> = std::result::Result<T, CompilationError>;
+
 #[derive(Deserialize)]
 struct CargoTomlFull {
     package: PackageFull,
@@ -33,30 +110,7 @@ pub enum WasmRustError {
     TomlParse(#[from] toml::de::Error),
 }
 
-pub type Result<T> = std::result::Result<T, WasmRustError>;
-
-fn copy_dir_recursive(from: &Path, to: &Path) -> Result<()> {
-    if !from.exists() {
-        return Ok(());
-    }
-
-    std::fs::create_dir_all(to)?;
-
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let from_path = entry.path();
-        let to_path = to.join(entry.file_name());
-
-        if file_type.is_dir() {
-            copy_dir_recursive(&from_path, &to_path)?;
-        } else {
-            std::fs::copy(&from_path, &to_path)?;
-        }
-    }
-
-    Ok(())
-}
+pub type WasmRustResult<T> = std::result::Result<T, WasmRustError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileConfig {
@@ -67,14 +121,7 @@ pub struct CompileConfig {
     pub verbose: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OptimizationLevel {
-    Debug,
-    Release,
-    Size,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TargetType {
     Wasm,
     WebApp,
@@ -125,6 +172,48 @@ pub struct DependencyCheck {
     pub reason: String,
 }
 
+// Plugin trait definitions
+pub trait Plugin {
+    fn info(&self) -> &PluginInfo;
+    fn can_handle_project(&self, project_path: &str) -> bool;
+    fn get_builder(&self) -> Box<dyn WasmBuilder>;
+}
+
+pub trait WasmBuilder {
+    fn can_handle_project(&self, project_path: &str) -> bool;
+    fn build(&self, config: &BuildConfig) -> CompilationResult<BuildResult>;
+    fn check_dependencies(&self) -> Vec<String>;
+    fn validate_project(&self, project_path: &str) -> CompilationResult<()>;
+    fn clean(&self, project_path: &str) -> std::result::Result<(), Box<dyn std::error::Error>>;
+    fn clone_box(&self) -> Box<dyn WasmBuilder>;
+    fn language_name(&self) -> &str;
+    fn entry_file_candidates(&self) -> &[&str];
+    fn supported_extensions(&self) -> &[&str];
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) -> WasmRustResult<()> {
+    if !from.exists() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(to)?;
+
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let from_path = entry.path();
+        let to_path = to.join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_dir_recursive(&from_path, &to_path)?;
+        } else {
+            std::fs::copy(&from_path, &to_path)?;
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct WasmRustPlugin;
 
@@ -156,7 +245,7 @@ impl WasmRustPlugin {
         missing
     }
 
-    pub fn analyze_project(&self, project_path: &str) -> Result<ProjectInfo> {
+    pub fn inspect_project(&self, project_path: &str) -> WasmRustResult<ProjectInfo> {
         let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
         if !cargo_toml_path.exists() {
             return Err(WasmRustError::InvalidProject(
@@ -165,18 +254,14 @@ impl WasmRustPlugin {
         }
 
         let content = fs::read_to_string(&cargo_toml_path)?;
-
-        let cargo_toml: CargoTomlFull =
-            toml::from_str(&content).map_err(WasmRustError::TomlParse)?;
+        let cargo_toml: CargoTomlFull = toml::from_str(&content)?;
 
         let name = cargo_toml.package.name.clone();
         let version = cargo_toml.package.version.clone();
 
         let (project_type, frameworks) =
             self.detect_project_type_and_frameworks(project_path, &content);
-
         let build_strategy = self.determine_build_strategy(project_path, &project_type);
-
         let dependencies = self.check_dependencies_comprehensive(&project_type, &build_strategy);
 
         Ok(ProjectInfo {
@@ -319,7 +404,7 @@ impl WasmRustPlugin {
         DependencyStatus { required, optional }
     }
 
-    pub fn compile(&self, config: &CompileConfig) -> Result<CompileResult> {
+    pub fn compile(&self, config: &CompileConfig) -> WasmRustResult<CompileResult> {
         if let Some(parent) = Path::new(&config.output_dir).parent() {
             fs::create_dir_all(parent)?;
         }
@@ -333,6 +418,55 @@ impl WasmRustPlugin {
             }
         } else {
             self.compile_standard_wasm(config)
+        }
+    }
+
+    pub fn compile_for_aot(&self, project_path: &str, output_dir: &str) -> WasmRustResult<String> {
+        let config = CompileConfig {
+            project_path: project_path.to_string(),
+            output_dir: output_dir.to_string(),
+            optimization: OptimizationLevel::Release,
+            target_type: if self.is_rust_web_application(project_path) {
+                TargetType::WebApp
+            } else {
+                TargetType::Wasm
+            },
+            verbose: false,
+        };
+
+        let result = self.compile(&config)?;
+        self.get_primary_output_file(&result)
+    }
+
+    pub fn compile_for_aot_with_optimization(
+        &self,
+        project_path: &str,
+        output_dir: &str,
+        optimization: OptimizationLevel,
+    ) -> WasmRustResult<String> {
+        let config = CompileConfig {
+            project_path: project_path.to_string(),
+            output_dir: output_dir.to_string(),
+            optimization,
+            target_type: if self.is_rust_web_application(project_path) {
+                TargetType::WebApp
+            } else {
+                TargetType::Wasm
+            },
+            verbose: false,
+        };
+
+        let result = self.compile(&config)?;
+        self.get_primary_output_file(&result)
+    }
+
+    fn get_primary_output_file(&self, result: &CompileResult) -> WasmRustResult<String> {
+        if result.is_webapp {
+            Ok(result.wasm_path.clone())
+        } else if let Some(js_path) = &result.js_path {
+            Ok(js_path.clone())
+        } else {
+            Ok(result.wasm_path.clone())
         }
     }
 
@@ -384,7 +518,7 @@ impl WasmRustPlugin {
         false
     }
 
-    fn compile_standard_wasm(&self, config: &CompileConfig) -> Result<CompileResult> {
+    fn compile_standard_wasm(&self, config: &CompileConfig) -> WasmRustResult<CompileResult> {
         self.ensure_wasm32_target(config.verbose)?;
 
         let mut args = vec!["build", "--target", "wasm32-unknown-unknown"];
@@ -420,17 +554,48 @@ impl WasmRustPlugin {
         };
 
         let wasm_name = self.get_package_name(&config.project_path)?;
-        let wasm_path = Path::new(&config.project_path)
+        let target_dir = Path::new(&config.project_path)
             .join("target/wasm32-unknown-unknown")
-            .join(profile)
-            .join(format!("{wasm_name}.wasm"));
+            .join(profile);
 
-        if !wasm_path.exists() {
-            return Err(WasmRustError::CompilationFailed(format!(
-                "WASM file not found at: {}",
-                wasm_path.display()
-            )));
+        // Try multiple potential WASM file names
+        let potential_names = vec![
+            format!("{wasm_name}.wasm"),
+            format!("{}.wasm", wasm_name.replace("_", "-")),
+            format!("{}.wasm", wasm_name.replace("-", "_")),
+        ];
+
+        let mut wasm_path = None;
+        for name in &potential_names {
+            let path = target_dir.join(name);
+            if path.exists() {
+                wasm_path = Some(path);
+                break;
+            }
         }
+
+        let wasm_path = wasm_path.ok_or_else(|| {
+            let mut error_msg = "WASM file not found. Tried:\n".to_string();
+            for name in &potential_names {
+                let path = target_dir.join(name);
+                error_msg.push_str(&format!("  - {}\n", path.display()));
+            }
+
+            // List actual files in the directory for debugging
+            if let Ok(entries) = std::fs::read_dir(&target_dir) {
+                error_msg.push_str("Files found in target directory:\n");
+                for entry in entries.flatten() {
+                    error_msg.push_str(&format!("  - {}\n", entry.file_name().to_string_lossy()));
+                }
+            } else {
+                error_msg.push_str(&format!(
+                    "Target directory doesn't exist: {}\n",
+                    target_dir.display()
+                ));
+            }
+
+            WasmRustError::CompilationFailed(error_msg)
+        })?;
 
         let output_wasm = Path::new(&config.output_dir).join(format!("{wasm_name}.wasm"));
         fs::copy(&wasm_path, &output_wasm)?;
@@ -443,7 +608,7 @@ impl WasmRustPlugin {
         })
     }
 
-    fn compile_wasm_bindgen(&self, config: &CompileConfig) -> Result<CompileResult> {
+    fn compile_wasm_bindgen(&self, config: &CompileConfig) -> WasmRustResult<CompileResult> {
         if !self.is_tool_available("wasm-pack") {
             return Err(WasmRustError::ToolNotFound(
                 "wasm-pack is required for wasm-bindgen projects".to_string(),
@@ -491,7 +656,7 @@ impl WasmRustPlugin {
         })
     }
 
-    fn compile_web_application(&self, config: &CompileConfig) -> Result<CompileResult> {
+    fn compile_web_application(&self, config: &CompileConfig) -> WasmRustResult<CompileResult> {
         let uses_trunk = Path::new(&config.project_path).join("Trunk.toml").exists()
             || Path::new(&config.project_path).join("trunk.toml").exists();
 
@@ -502,7 +667,7 @@ impl WasmRustPlugin {
         }
     }
 
-    fn compile_with_trunk(&self, config: &CompileConfig) -> Result<CompileResult> {
+    fn compile_with_trunk(&self, config: &CompileConfig) -> WasmRustResult<CompileResult> {
         let mut args = vec!["build"];
 
         match config.optimization {
@@ -521,7 +686,6 @@ impl WasmRustPlugin {
                 args.join(" "),
                 config.project_path
             );
-            println!("Expected output directory: {}/dist", config.project_path);
         }
 
         let output = Command::new("trunk")
@@ -550,16 +714,6 @@ impl WasmRustPlugin {
                 "Checking for index.html at: {}",
                 index_in_project_dist.display()
             );
-            if project_dist.exists() {
-                println!("Contents of project dist directory:");
-                if let Ok(entries) = std::fs::read_dir(&project_dist) {
-                    for entry in entries.flatten() {
-                        println!("  - {}", entry.file_name().to_string_lossy());
-                    }
-                }
-            } else {
-                println!("Project dist directory doesn't exist");
-            }
         }
 
         if index_in_project_dist.exists() {
@@ -594,15 +748,14 @@ impl WasmRustPlugin {
         })
     }
 
-    fn get_package_name(&self, project_path: &str) -> Result<String> {
+    fn get_package_name(&self, project_path: &str) -> WasmRustResult<String> {
         let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
         let content = fs::read_to_string(cargo_toml_path)?;
-
         let cargo_toml: CargoTomlFull = toml::from_str(&content)?;
         Ok(cargo_toml.package.name.replace("-", "_"))
     }
 
-    fn ensure_wasm32_target(&self, verbose: bool) -> Result<()> {
+    fn ensure_wasm32_target(&self, verbose: bool) -> WasmRustResult<()> {
         if !self.is_wasm_target_installed() {
             if verbose {
                 println!("Installing wasm32-unknown-unknown target...");
@@ -633,7 +786,7 @@ impl WasmRustPlugin {
             .unwrap_or(false)
     }
 
-    fn is_tool_available(&self, tool: &str) -> bool {
+    pub fn is_tool_available(&self, tool: &str) -> bool {
         if let Ok(output) = Command::new(tool).arg("--version").output() {
             return output.status.success();
         }
@@ -651,38 +804,30 @@ impl WasmRustPlugin {
             .unwrap_or(false)
     }
 
-    pub fn run_for_execution(&self, project_path: &str, output_dir: &str) -> Result<String> {
-        let config = CompileConfig {
-            project_path: project_path.to_string(),
-            output_dir: output_dir.to_string(),
-            optimization: OptimizationLevel::Release,
-            target_type: TargetType::Wasm,
-            verbose: false,
-        };
+    pub fn get_watch_paths(&self, project_path: &str) -> Vec<std::path::PathBuf> {
+        let mut paths = Vec::new();
+        let project_path = std::path::Path::new(project_path);
 
-        let result = self.compile(&config)?;
-        Ok(result.js_path.unwrap_or(result.wasm_path))
+        paths.push(project_path.join("Cargo.toml"));
+
+        if project_path.join("src").exists() {
+            paths.push(project_path.join("src"));
+        }
+
+        if project_path.join("Trunk.toml").exists() {
+            paths.push(project_path.join("Trunk.toml"));
+        }
+
+        for asset_dir in &["assets", "static", "public"] {
+            if project_path.join(asset_dir).exists() {
+                paths.push(project_path.join(asset_dir));
+            }
+        }
+
+        paths
     }
 
-    pub fn run_for_execution_with_config(
-        &self,
-        project_path: &str,
-        output_dir: &str,
-        optimization: OptimizationLevel,
-    ) -> Result<String> {
-        let config = CompileConfig {
-            project_path: project_path.to_string(),
-            output_dir: output_dir.to_string(),
-            optimization,
-            target_type: TargetType::Wasm,
-            verbose: false,
-        };
-
-        let result = self.compile(&config)?;
-        Ok(result.js_path.unwrap_or(result.wasm_path))
-    }
-
-    pub fn verify_dependencies(&self) -> Result<()> {
+    pub fn verify_dependencies(&self) -> WasmRustResult<()> {
         let missing = self.check_dependencies();
         if !missing.is_empty() {
             return Err(WasmRustError::ToolNotFound(format!(
@@ -693,26 +838,8 @@ impl WasmRustPlugin {
         Ok(())
     }
 
-    pub fn get_project_info(&self, project_path: &str) -> Result<ProjectInfo> {
-        self.analyze_project(project_path)
-    }
-
-    pub fn compile_for_execution(
-        &self,
-        project_path: &str,
-        output_dir: &str,
-        optimization: OptimizationLevel,
-    ) -> Result<String> {
-        let config = CompileConfig {
-            project_path: project_path.to_string(),
-            output_dir: output_dir.to_string(),
-            optimization,
-            target_type: TargetType::Wasm,
-            verbose: false,
-        };
-
-        let result = self.compile(&config)?;
-        Ok(result.js_path.unwrap_or(result.wasm_path))
+    pub fn get_project_info(&self, project_path: &str) -> WasmRustResult<ProjectInfo> {
+        self.inspect_project(project_path)
     }
 
     pub fn supports_web_app(&self, project_path: &str) -> bool {
@@ -720,14 +847,14 @@ impl WasmRustPlugin {
     }
 
     pub fn get_extensions(&self) -> Vec<String> {
-        vec!["rs".to_string()]
+        vec!["rs".to_string(), "toml".to_string()]
     }
 
     pub fn get_entry_files(&self) -> Vec<String> {
         vec![
             "Cargo.toml".to_string(),
-            "main.rs".to_string(),
-            "lib.rs".to_string(),
+            "src/main.rs".to_string(),
+            "src/lib.rs".to_string(),
         ]
     }
 }
@@ -738,180 +865,234 @@ impl Default for WasmRustPlugin {
     }
 }
 
-// ============================================================================
-// WASMRUN INTEGRATION - WasmBuilder Implementation
-// ============================================================================
-
-// These types are compatible with wasmrun's builder.rs
-#[derive(Debug, Clone)]
-pub struct WasmrunBuildConfig {
-    pub project_path: String,
-    pub output_dir: String,
-    pub optimization_level: WasmrunOptimizationLevel,
-    pub verbose: bool,
-    pub watch: bool,
+// Plugin trait implementations
+pub struct WasmrustPlugin {
+    inner: WasmRustPlugin,
+    info: PluginInfo,
 }
 
-#[derive(Debug, Clone)]
-pub enum WasmrunOptimizationLevel {
-    Debug,
-    Release,
-    Size,
-}
+impl WasmrustPlugin {
+    pub fn new() -> Self {
+        let info = PluginInfo {
+            name: "wasmrust".to_string(),
+            version: "0.3.0".to_string(),
+            description: "Rust to WebAssembly compiler with wasm-bindgen support".to_string(),
+            author: "Kumar Anirudha".to_string(),
+            extensions: vec!["rs".to_string(), "toml".to_string()],
+            entry_files: vec![
+                "Cargo.toml".to_string(),
+                "src/main.rs".to_string(),
+                "src/lib.rs".to_string(),
+            ],
+            plugin_type: PluginType::External,
+            source: Some(PluginSource::CratesIo {
+                name: "wasmrust".to_string(),
+                version: "0.3.0".to_string(),
+            }),
+            dependencies: vec![
+                "cargo".to_string(),
+                "rustc".to_string(),
+                "wasm-pack".to_string(),
+            ],
+            capabilities: PluginCapabilities {
+                compile_wasm: true,
+                compile_webapp: true,
+                live_reload: true,
+                optimization: true,
+                custom_targets: vec!["wasm32-unknown-unknown".to_string(), "web".to_string()],
+            },
+        };
 
-#[derive(Debug, Clone)]
-pub struct WasmrunBuildResult {
-    pub wasm_path: String,
-    pub js_path: Option<String>,
-    pub additional_files: Vec<String>,
-    pub is_wasm_bindgen: bool,
-}
-
-// Error type compatible with wasmrun
-#[derive(Debug)]
-pub enum WasmrunCompilationError {
-    BuildFailed { language: String, reason: String },
-}
-
-impl std::fmt::Display for WasmrunCompilationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WasmrunCompilationError::BuildFailed { language, reason } => {
-                write!(f, "{language} build failed: {reason}")
-            }
+        Self {
+            inner: WasmRustPlugin::new(),
+            info,
         }
     }
 }
 
-impl std::error::Error for WasmrunCompilationError {}
-
-pub type WasmrunResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-pub type WasmrunCompilationResult<T> = std::result::Result<T, WasmrunCompilationError>;
-
-// Trait definition compatible with wasmrun
-pub trait WasmrunWasmBuilder: Send + Sync {
-    fn can_handle_project(&self, project_path: &str) -> bool;
-    fn build(&self, config: &WasmrunBuildConfig) -> WasmrunCompilationResult<WasmrunBuildResult>;
-    fn clean(&self, project_path: &str) -> WasmrunResult<()>;
-    fn clone_box(&self) -> Box<dyn WasmrunWasmBuilder>;
+impl Default for WasmrustPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-// WasmBuilder implementation for wasmrun
-#[derive(Clone)]
-pub struct WasmRustWasmBuilder {
-    plugin: WasmRustPlugin,
+impl Plugin for WasmrustPlugin {
+    fn info(&self) -> &PluginInfo {
+        &self.info
+    }
+
+    fn can_handle_project(&self, project_path: &str) -> bool {
+        self.inner.can_handle(project_path)
+    }
+
+    fn get_builder(&self) -> Box<dyn WasmBuilder> {
+        Box::new(WasmrustBuilder::new())
+    }
 }
 
-impl WasmRustWasmBuilder {
+pub struct WasmrustBuilder {
+    inner: WasmRustPlugin,
+}
+
+impl WasmrustBuilder {
     pub fn new() -> Self {
         Self {
-            plugin: WasmRustPlugin::new(),
+            inner: WasmRustPlugin::new(),
         }
     }
 }
 
-impl WasmrunWasmBuilder for WasmRustWasmBuilder {
+impl Default for WasmrustBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WasmBuilder for WasmrustBuilder {
     fn can_handle_project(&self, project_path: &str) -> bool {
-        self.plugin.can_handle(project_path)
+        self.inner.can_handle(project_path)
     }
 
-    fn build(&self, config: &WasmrunBuildConfig) -> WasmrunCompilationResult<WasmrunBuildResult> {
-        // Convert wasmrun BuildConfig to wasmrust CompileConfig
-        let optimization = match config.optimization_level {
-            WasmrunOptimizationLevel::Debug => OptimizationLevel::Debug,
-            WasmrunOptimizationLevel::Release => OptimizationLevel::Release,
-            WasmrunOptimizationLevel::Size => OptimizationLevel::Size,
+    fn build(&self, config: &BuildConfig) -> CompilationResult<BuildResult> {
+        let start_time = std::time::Instant::now();
+
+        let optimization = config.optimization.clone();
+        let target_type = if config.target_type == "webapp"
+            || self.inner.is_rust_web_application(&config.input)
+        {
+            TargetType::WebApp
+        } else {
+            TargetType::Wasm
         };
 
         let compile_config = CompileConfig {
-            project_path: config.project_path.clone(),
+            project_path: config.input.clone(),
             output_dir: config.output_dir.clone(),
-            optimization,
-            target_type: TargetType::Wasm,
+            optimization: optimization.clone(),
+            target_type,
             verbose: config.verbose,
         };
 
-        match self.plugin.compile(&compile_config) {
+        match self.inner.compile(&compile_config) {
             Ok(result) => {
-                // Calculate is_wasm_bindgen BEFORE moving result.js_path
-                let is_wasm_bindgen = result.js_path.is_some();
+                let build_time = start_time.elapsed();
 
-                // Convert wasmrust CompileResult to wasmrun BuildResult
-                Ok(WasmrunBuildResult {
-                    wasm_path: result.wasm_path,
-                    js_path: result.js_path,
-                    additional_files: result.additional_files,
-                    is_wasm_bindgen,
+                let file_size = if result.is_webapp {
+                    std::fs::read_dir(&result.wasm_path)
+                        .ok()
+                        .and_then(|entries| {
+                            entries
+                                .filter_map(|entry| entry.ok())
+                                .find(|entry| {
+                                    entry.path().extension().is_some_and(|ext| ext == "wasm")
+                                })
+                                .and_then(|entry| std::fs::metadata(entry.path()).ok())
+                                .map(|metadata| metadata.len())
+                        })
+                        .unwrap_or(0)
+                } else {
+                    std::fs::metadata(&result.wasm_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                };
+
+                Ok(BuildResult {
+                    output_path: result.js_path.unwrap_or(result.wasm_path),
+                    language: "rust".to_string(),
+                    optimization_level: optimization,
+                    build_time,
+                    file_size,
                 })
             }
-            Err(e) => Err(WasmrunCompilationError::BuildFailed {
+            Err(e) => Err(CompilationError::BuildFailed {
                 language: "rust".to_string(),
                 reason: format!("{e}"),
             }),
         }
     }
 
-    fn clean(&self, project_path: &str) -> WasmrunResult<()> {
-        // Clean Rust project artifacts
-        let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
-        if !cargo_toml_path.exists() {
-            return Err("No Cargo.toml found".into());
-        }
+    fn check_dependencies(&self) -> Vec<String> {
+        self.inner.check_dependencies()
+    }
 
+    fn validate_project(&self, project_path: &str) -> CompilationResult<()> {
+        if !self.inner.can_handle(project_path) {
+            return Err(CompilationError::BuildFailed {
+                language: "rust".to_string(),
+                reason: format!("Project at '{project_path}' is not a valid Rust project"),
+            });
+        }
+        Ok(())
+    }
+
+    fn clean(&self, project_path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let output = Command::new("cargo")
             .args(["clean"])
             .current_dir(project_path)
-            .output()
-            .map_err(|e| format!("Failed to execute cargo clean: {e}"))?;
+            .output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("cargo clean failed: {stderr}").into());
+            return Err(format!("Clean failed: {stderr}").into());
         }
 
         Ok(())
     }
 
-    fn clone_box(&self) -> Box<dyn WasmrunWasmBuilder> {
-        Box::new(self.clone())
+    fn clone_box(&self) -> Box<dyn WasmBuilder> {
+        Box::new(WasmrustBuilder::new())
+    }
+
+    fn language_name(&self) -> &str {
+        "rust"
+    }
+
+    fn entry_file_candidates(&self) -> &[&str] {
+        &["Cargo.toml", "src/main.rs", "src/lib.rs"]
+    }
+
+    fn supported_extensions(&self) -> &[&str] {
+        &["rs", "toml"]
     }
 }
 
-impl Default for WasmRustWasmBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
+// Plugin factory function for Wasmrun integration
+pub fn create_plugin() -> Box<dyn Plugin> {
+    Box::new(WasmrustPlugin::new())
 }
 
-// ============================================================================
-// DYNAMIC LOADING C INTERFACE
-// ============================================================================
-
+// C interface for dynamic loading
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::ptr;
 
 #[repr(C)]
 pub struct BuildConfigC {
-    pub project_path: *const c_char,
+    pub input: *const c_char,
     pub output_dir: *const c_char,
-    pub optimization_level: u8, // 0=Debug, 1=Release, 2=Size
+    pub optimization: u8, // 0=Debug, 1=Release, 2=Size
+    pub target_type: *const c_char,
     pub verbose: bool,
     pub watch: bool,
 }
 
 #[repr(C)]
 pub struct BuildResultC {
-    pub wasm_path: *mut c_char,
-    pub js_path: *mut c_char, // null if None
-    pub is_wasm_bindgen: bool,
+    pub output_path: *mut c_char,
+    pub language: *mut c_char,
+    pub file_size: u64,
     pub success: bool,
-    pub error_message: *mut c_char, // null if success
+    pub error_message: *mut c_char,
 }
 
-// Main factory function for creating the builder
+#[no_mangle]
+pub extern "C" fn wasmrun_plugin_create() -> *mut c_void {
+    let plugin = Box::new(WasmrustPlugin::new());
+    Box::into_raw(plugin) as *mut c_void
+}
+
 #[no_mangle]
 pub extern "C" fn create_wasm_builder() -> *mut c_void {
-    let builder = Box::new(WasmRustWasmBuilder::new());
+    let builder = Box::new(WasmrustBuilder::new());
     Box::into_raw(builder) as *mut c_void
 }
 
@@ -919,7 +1100,7 @@ pub extern "C" fn create_wasm_builder() -> *mut c_void {
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 /// - `project_path` must be a valid null-terminated C string
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_can_handle_project(
@@ -930,7 +1111,7 @@ pub unsafe extern "C" fn wasmrust_can_handle_project(
         return false;
     }
 
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
+    let builder = &*(builder_ptr as *const WasmrustBuilder);
     let path_str = match CStr::from_ptr(project_path).to_str() {
         Ok(s) => s,
         Err(_) => return false,
@@ -943,7 +1124,7 @@ pub unsafe extern "C" fn wasmrust_can_handle_project(
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 /// - `config` must be a valid pointer to a BuildConfigC
 /// - Caller must call `wasmrust_free_build_result` on the returned pointer
 #[no_mangle]
@@ -955,10 +1136,10 @@ pub unsafe extern "C" fn wasmrust_build(
         return ptr::null_mut();
     }
 
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
+    let builder = &*(builder_ptr as *const WasmrustBuilder);
     let config_c = &*config;
 
-    let project_path = match CStr::from_ptr(config_c.project_path).to_str() {
+    let input = match CStr::from_ptr(config_c.input).to_str() {
         Ok(s) => s.to_string(),
         Err(_) => return ptr::null_mut(),
     };
@@ -968,30 +1149,36 @@ pub unsafe extern "C" fn wasmrust_build(
         Err(_) => return ptr::null_mut(),
     };
 
-    let optimization = match config_c.optimization_level {
-        0 => WasmrunOptimizationLevel::Debug,
-        1 => WasmrunOptimizationLevel::Release,
-        2 => WasmrunOptimizationLevel::Size,
-        _ => WasmrunOptimizationLevel::Release,
+    let target_type = match CStr::from_ptr(config_c.target_type).to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => "wasm".to_string(),
     };
 
-    let build_config = WasmrunBuildConfig {
-        project_path,
+    let optimization = match config_c.optimization {
+        0 => OptimizationLevel::Debug,
+        1 => OptimizationLevel::Release,
+        2 => OptimizationLevel::Size,
+        _ => OptimizationLevel::Release,
+    };
+
+    let build_config = BuildConfig {
+        input,
         output_dir,
-        optimization_level: optimization,
+        optimization,
+        target_type,
         verbose: config_c.verbose,
         watch: config_c.watch,
     };
 
     match builder.build(&build_config) {
         Ok(result) => {
-            let wasm_path = CString::new(result.wasm_path).unwrap();
-            let js_path = result.js_path.map(|p| CString::new(p).unwrap());
+            let output_path = CString::new(result.output_path).unwrap();
+            let language = CString::new(result.language).unwrap();
 
             let result_c = Box::new(BuildResultC {
-                wasm_path: wasm_path.into_raw(),
-                js_path: js_path.map(|p| p.into_raw()).unwrap_or(ptr::null_mut()),
-                is_wasm_bindgen: result.is_wasm_bindgen,
+                output_path: output_path.into_raw(),
+                language: language.into_raw(),
+                file_size: result.file_size,
                 success: true,
                 error_message: ptr::null_mut(),
             });
@@ -1001,9 +1188,9 @@ pub unsafe extern "C" fn wasmrust_build(
         Err(e) => {
             let error_msg = CString::new(format!("{e}")).unwrap();
             let result_c = Box::new(BuildResultC {
-                wasm_path: ptr::null_mut(),
-                js_path: ptr::null_mut(),
-                is_wasm_bindgen: false,
+                output_path: ptr::null_mut(),
+                language: ptr::null_mut(),
+                file_size: 0,
                 success: false,
                 error_message: error_msg.into_raw(),
             });
@@ -1017,7 +1204,7 @@ pub unsafe extern "C" fn wasmrust_build(
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 /// - `project_path` must be a valid null-terminated C string
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_clean(
@@ -1028,7 +1215,7 @@ pub unsafe extern "C" fn wasmrust_clean(
         return false;
     }
 
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
+    let builder = &*(builder_ptr as *const WasmrustBuilder);
     let path_str = match CStr::from_ptr(project_path).to_str() {
         Ok(s) => s,
         Err(_) => return false,
@@ -1041,7 +1228,7 @@ pub unsafe extern "C" fn wasmrust_clean(
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 /// - Caller must call `wasmrust_drop` on the returned pointer
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_clone_box(builder_ptr: *const c_void) -> *mut c_void {
@@ -1049,7 +1236,7 @@ pub unsafe extern "C" fn wasmrust_clone_box(builder_ptr: *const c_void) -> *mut 
         return ptr::null_mut();
     }
 
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
+    let builder = &*(builder_ptr as *const WasmrustBuilder);
     let cloned = builder.clone_box();
     Box::into_raw(cloned) as *mut c_void
 }
@@ -1058,12 +1245,12 @@ pub unsafe extern "C" fn wasmrust_clone_box(builder_ptr: *const c_void) -> *mut 
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 /// - The pointer must not be used after calling this function
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_drop(builder_ptr: *mut c_void) {
     if !builder_ptr.is_null() {
-        let _ = Box::from_raw(builder_ptr as *mut WasmRustWasmBuilder);
+        let _ = Box::from_raw(builder_ptr as *mut WasmrustBuilder);
     }
 }
 
@@ -1081,12 +1268,12 @@ pub unsafe extern "C" fn wasmrust_free_build_result(result_ptr: *mut BuildResult
 
     let result = Box::from_raw(result_ptr);
 
-    if !result.wasm_path.is_null() {
-        let _ = CString::from_raw(result.wasm_path);
+    if !result.output_path.is_null() {
+        let _ = CString::from_raw(result.output_path);
     }
 
-    if !result.js_path.is_null() {
-        let _ = CString::from_raw(result.js_path);
+    if !result.language.is_null() {
+        let _ = CString::from_raw(result.language);
     }
 
     if !result.error_message.is_null() {
@@ -1094,83 +1281,11 @@ pub unsafe extern "C" fn wasmrust_free_build_result(result_ptr: *mut BuildResult
     }
 }
 
-/// Gets the file extensions supported by this plugin.
-///
-/// # Safety
-///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
-/// - `extensions_out` and `count_out` must be valid pointers
-/// - Caller must call `wasmrust_free_string_array` on the returned array
-#[no_mangle]
-pub unsafe extern "C" fn wasmrust_get_extensions(
-    builder_ptr: *const c_void,
-    extensions_out: *mut *mut *mut c_char,
-    count_out: *mut usize,
-) -> bool {
-    if builder_ptr.is_null() || extensions_out.is_null() || count_out.is_null() {
-        return false;
-    }
-
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
-    let extensions = builder.plugin.get_extensions();
-
-    let mut c_extensions = Vec::new();
-    for ext in extensions {
-        if let Ok(c_ext) = CString::new(ext) {
-            c_extensions.push(c_ext.into_raw());
-        }
-    }
-
-    let len = c_extensions.len();
-    let ptr = c_extensions.into_boxed_slice();
-
-    *extensions_out = Box::into_raw(ptr) as *mut *mut c_char;
-    *count_out = len;
-
-    true
-}
-
-/// Gets the entry files used by this plugin.
-///
-/// # Safety
-///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
-/// - `entry_files_out` and `count_out` must be valid pointers
-/// - Caller must call `wasmrust_free_string_array` on the returned array
-#[no_mangle]
-pub unsafe extern "C" fn wasmrust_get_entry_files(
-    builder_ptr: *const c_void,
-    entry_files_out: *mut *mut *mut c_char,
-    count_out: *mut usize,
-) -> bool {
-    if builder_ptr.is_null() || entry_files_out.is_null() || count_out.is_null() {
-        return false;
-    }
-
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
-    let entry_files = builder.plugin.get_entry_files();
-
-    let mut c_entry_files = Vec::new();
-    for file in entry_files {
-        if let Ok(c_file) = CString::new(file) {
-            c_entry_files.push(c_file.into_raw());
-        }
-    }
-
-    let len = c_entry_files.len();
-    let ptr = c_entry_files.into_boxed_slice();
-
-    *entry_files_out = Box::into_raw(ptr) as *mut *mut c_char;
-    *count_out = len;
-
-    true
-}
-
 /// Checks if the plugin supports web applications.
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 /// - `project_path` must be a valid null-terminated C string
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_supports_web_app(
@@ -1181,49 +1296,28 @@ pub unsafe extern "C" fn wasmrust_supports_web_app(
         return false;
     }
 
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
+    let builder = &*(builder_ptr as *const WasmrustBuilder);
     let path_str = match CStr::from_ptr(project_path).to_str() {
         Ok(s) => s,
         Err(_) => return false,
     };
 
-    builder.plugin.supports_web_app(path_str)
+    builder.inner.supports_web_app(path_str)
 }
 
 /// Verifies that all required dependencies are available.
 ///
 /// # Safety
 ///
-/// - `builder_ptr` must be a valid pointer to a WasmRustWasmBuilder
+/// - `builder_ptr` must be a valid pointer to a WasmrustBuilder
 #[no_mangle]
 pub unsafe extern "C" fn wasmrust_verify_dependencies(builder_ptr: *const c_void) -> bool {
     if builder_ptr.is_null() {
         return false;
     }
 
-    let builder = &*(builder_ptr as *const WasmRustWasmBuilder);
-    builder.plugin.verify_dependencies().is_ok()
-}
-
-/// Frees a string array allocated by other wasmrust functions.
-///
-/// # Safety
-///
-/// - `array_ptr` must be a valid pointer to a string array
-/// - `count` must be the exact number of strings in the array
-/// - The pointer must not be used after calling this function
-#[no_mangle]
-pub unsafe extern "C" fn wasmrust_free_string_array(array_ptr: *mut *mut c_char, count: usize) {
-    if array_ptr.is_null() {
-        return;
-    }
-
-    let array = Box::from_raw(std::slice::from_raw_parts_mut(array_ptr, count));
-    for ptr in array.iter() {
-        if !ptr.is_null() {
-            let _ = CString::from_raw(*ptr);
-        }
-    }
+    let builder = &*(builder_ptr as *const WasmrustBuilder);
+    builder.inner.verify_dependencies().is_ok()
 }
 
 // Plugin metadata for wasmrun discovery
@@ -1231,7 +1325,7 @@ pub unsafe extern "C" fn wasmrust_free_string_array(array_ptr: *mut *mut c_char,
 pub static WASMRUST_PLUGIN_NAME: &[u8] = b"wasmrust\0";
 
 #[no_mangle]
-pub static WASMRUST_PLUGIN_VERSION: &[u8] = b"0.1.5\0";
+pub static WASMRUST_PLUGIN_VERSION: &[u8] = b"0.3.0\0";
 
 #[no_mangle]
 pub static WASMRUST_PLUGIN_DESCRIPTION: &[u8] = b"Rust WebAssembly compiler plugin\0";
@@ -1239,7 +1333,6 @@ pub static WASMRUST_PLUGIN_DESCRIPTION: &[u8] = b"Rust WebAssembly compiler plug
 #[no_mangle]
 pub static WASMRUST_PLUGIN_AUTHOR: &[u8] = b"Kumar Anirudha\0";
 
-// Plugin capabilities flags
 #[no_mangle]
 pub static WASMRUST_SUPPORTS_WASM: bool = true;
 
