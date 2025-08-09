@@ -37,23 +37,23 @@ standalone = []
 [dev-dependencies]
 tempfile = "3.0"
 
-[package.metadata.wasm-plugin]
+[package.metadata.wasm_plugin]
 name = "rust"
 extensions = ["rs", "toml"]
 entry_files = ["Cargo.toml", "src/main.rs", "src/lib.rs"]
 
-[package.metadata.wasm-plugin.capabilities]
+[package.metadata.wasm_plugin.capabilities]
 compile_wasm = true
 compile_webapp = true
 live_reload = true
 optimization = true
 custom_targets = ["wasm32-unknown-unknown", "web"]
 
-[package.metadata.wasm-plugin.dependencies]
+[package.metadata.wasm_plugin.dependencies]
 tools = ["cargo", "rustc", "wasm-pack"]
 optional_tools = ["trunk", "wasm-opt", "rustup"]
 
-[package.metadata.wasm-plugin.exports]
+[package.metadata.wasm_plugin.exports]
 create_wasm_builder = "create_wasm_builder"
 can_handle_project = "wasmrust_can_handle_project"
 build = "wasmrust_build"
@@ -62,6 +62,6 @@ clone_box = "wasmrust_clone_box"
 drop = "wasmrust_drop"
 plugin_create = "wasmrun_plugin_create"
 
-[package.metadata.wasm-plugin.frameworks]
+[package.metadata.wasm_plugin.frameworks]
 supported = ["yew", "leptos", "dioxus", "sycamore", "trunk"]
 auto_detect = true
