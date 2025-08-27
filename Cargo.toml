@@ -1,6 +1,6 @@
 [package]
 name = "wasmrust"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Kumar Anirudha <wasm@anirudha.dev>"]
 description = "Rust WebAssembly plugin for Wasmrun - compile Rust projects to WebAssembly with wasm-bindgen support"
@@ -43,6 +43,7 @@ extensions = ["rs", "toml"]
 entry_files = ["Cargo.toml", "src/main.rs", "src/lib.rs"]
 
 [package.metadata.wasm_plugin.capabilities]
+supported_languages = ["rust"]
 compile_wasm = true
 compile_webapp = true
 live_reload = true
